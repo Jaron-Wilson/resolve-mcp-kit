@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "resolve": {
+      "command": "C:\\path\\to\\resolve-mcp-kit\\.venv\\Scripts\\python.exe",
+      "args": ["C:\\path\\to\\resolve-mcp-kit\\resolve_mcp_server.py"],
+      "env": {
+        "RESOLVE_MCP_TRANSPORT": "stdio",
+        "RESOLVE_MCP_ALLOW_WRITE": "1"
+      }
+    }
+  }
+}

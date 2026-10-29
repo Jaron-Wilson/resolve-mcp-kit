@@ -1,0 +1,14 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "resolve": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8930/sse",
+      "headers": {
+        "Authorization": "Bearer {env:RESOLVE_MCP_TOKEN}"
+      },
+      "enabled": true,
+      "timeout": 60000
+    }
+  }
+}
