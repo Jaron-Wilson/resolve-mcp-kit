@@ -4,7 +4,7 @@
                       [--editor auto|resolve|ffmpeg] [--model qwen3:8b] [--music track.mp3] [--name NAME] [--out DIR]
   site-video serve [--host 127.0.0.1] [--port 8940] [--parallel 2] [--home DIR]
   site-video add URL [same options as make] [--server http://host:8940]
-  site-video list | status ID | cancel ID | retry ID | get ID [-o file.mp4]     [--server ...]
+  site-video list | status ID | cancel ID | retry ID | remove ID | get ID [-o file.mp4]     [--server ...]
 
 The model that writes the script, and the voices, are set with environment variables: see README.
 """
@@ -60,6 +60,8 @@ def main(argv=None):
                        help="none, openai[:voice], elevenlabs:<voice id>, odysseus")
         p.add_argument("--editor", default="auto", choices=["auto", "resolve", "ffmpeg"])
         p.add_argument("--model", default="", help="the model that writes the script (default SITE_VIDEO_LLM_MODEL)")
+        p.add_argument("--deliver", default="video",
+                       help="comma list: video, script, voiceover, clips, timeline, resolve_project, package, or all")
         p.add_argument("--name", default="")
 
     p = sub.add_parser("make", help="make one video now, in this terminal")
@@ -75,7 +77,7 @@ def main(argv=None):
     job_args(p)
     p.add_argument("--server", default=DEFAULT_SERVER)
     p.add_argument("--wait", action="store_true", help="wait until it is done")
-    for name in ("list", "status", "cancel", "retry", "get"):
+    for name in ("list", "status", "cancel", "retry", "remove", "get"):
         p = sub.add_parser(name)
         if name != "list":
             p.add_argument("id")
@@ -98,7 +100,7 @@ def main(argv=None):
     if a.cmd == "make":
         from . import pipeline
         try:
-            req = pipeline.request(a.url, a.length, a.notes, a.voice, a.editor, a.music, a.name, a.model)
+            req = pipeline.request(a.url, a.length, a.notes, a.voice, a.editor, a.music, a.name, a.model, a.deliver)
         except ValueError as e:
             sys.exit(f"error: {e}")
         out = a.out or os.path.join(DEFAULT_HOME, "jobs", time.strftime("%Y%m%d-%H%M%S-cli"))
@@ -111,7 +113,8 @@ def main(argv=None):
         return
     if a.cmd == "add":
         j = _http(a.server, "POST", "/api/jobs", {"url": a.url, "length": a.length, "notes": a.notes, "voice": a.voice,
-                                                    "editor": a.editor, "name": a.name, "model": a.model})
+                                                    "editor": a.editor, "name": a.name, "model": a.model,
+                                                    "deliverables": a.deliver.split(",")})
         _show(j)
         while a.wait and j["status"] not in ("done", "failed", "cancelled"):
             time.sleep(5)
@@ -129,6 +132,10 @@ def main(argv=None):
         return
     if a.cmd in ("cancel", "retry"):
         _show(_http(a.server, "POST", f"/api/jobs/{a.id}/{a.cmd}"))
+        return
+    if a.cmd == "remove":
+        _http(a.server, "POST", f"/api/jobs/{a.id}/remove")
+        print("removed", a.id)
         return
     if a.cmd == "get":
         r = _http(a.server, "GET", f"/api/jobs/{a.id}/video", raw=True)

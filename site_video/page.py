@@ -25,6 +25,11 @@ button.pri{background:var(--acc);border-color:var(--acc);color:#081221;font-weig
 .meta{color:var(--dim);font-size:13px;margin-top:4px;overflow-wrap:anywhere}.err{color:var(--bad);font-size:13px;margin-top:6px;overflow-wrap:anywhere}
 .bar{height:5px;background:#2a2e34;border-radius:3px;overflow:hidden;margin-top:8px}.bar i{display:block;height:100%;background:var(--acc);transition:width .5s}
 .btns{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}video{width:100%;border-radius:8px;margin-top:10px;background:#000}
+.chips{display:flex;flex-wrap:wrap;gap:6px}.chips button{border-radius:999px;padding:6px 12px}
+.chips button.on{border-color:var(--acc);background:#1c2a3d}.chips button[disabled]{opacity:1;cursor:default}
+.chips small{color:var(--dim);margin-left:4px}
+.files{margin-top:10px;display:grid;gap:4px}.files .k{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.05em;margin-top:6px}
+.files a{font-size:13px;overflow-wrap:anywhere}.files .sz{color:var(--dim);font-size:12px;margin-left:6px}
 pre{white-space:pre-wrap;font-size:12px;color:var(--dim);max-height:260px;overflow:auto;background:#111317;border-radius:8px;padding:10px;margin:10px 0 0}
 .empty{color:var(--dim)}
 </style></head><body><main>
@@ -43,6 +48,7 @@ pre{white-space:pre-wrap;font-size:12px;color:var(--dim);max-height:260px;overfl
     <div><label for="model">Script model</label><input id="model" list="models" placeholder="default" autocomplete="off"><datalist id="models"></datalist></div>
     <div><label for="editor">Editor</label><select id="editor"><option value="auto">Auto (Resolve if it is open)</option><option value="resolve">DaVinci Resolve</option><option value="ffmpeg">Plain ffmpeg</option></select></div>
   </div>
+  <label style="margin-top:14px">Deliverables</label><div class="chips" id="deliv"></div>
   <div class="actions"><button class="pri" id="go">Make the video</button><span class="msg" id="msg"></span></div>
 </div>
 <h2>Queue</h2><div id="jobs"><p class="empty">Nothing yet.</p></div>
@@ -53,6 +59,18 @@ const LENS=[['auto','Auto'],['30s','30s'],['1min','1m'],['2min','2m'],['5min','5
 const lenSeg=()=>$('#len').innerHTML=LENS.map(([v,l])=>`<button data-v="${v}" class="${v===LEN&&!$('#lenc').value?'on':''}">${l}</button>`).join('');
 $('#len').onclick=e=>{const b=e.target.closest('button');if(!b)return;LEN=b.dataset.v;$('#lenc').value='';lenSeg()};$('#lenc').oninput=lenSeg;lenSeg();
 let INFO={voices:['none']};
+const DELIV=[['video','Video'],['script','Script'],['voiceover','Voiceover'],['clips','Clips'],['timeline','Timeline','Resolve'],
+  ['resolve_project','Resolve project','Resolve'],['package','Full package (zip)']];
+let PICK=new Set(JSON.parse(localStorage.getItem('svDeliv')||'["video"]'));PICK.add('video');
+const delivDraw=()=>$('#deliv').innerHTML=DELIV.map(([k,l,n])=>`<button data-k="${k}" class="${PICK.has(k)||PICK.has('package')?'on':''}" ${k==='video'?'disabled title="always"':''}>${l}${n?'<small>needs '+n+'</small>':''}</button>`).join('');
+$('#deliv').onclick=e=>{const b=e.target.closest('button[data-k]');if(!b||b.dataset.k==='video')return;const k=b.dataset.k;
+  if(PICK.has(k))PICK.delete(k);else PICK.add(k);if(k==='package'&&!PICK.has('package'))PICK=new Set(['video',...[...PICK].filter(x=>x!=='package')]);
+  localStorage.setItem('svDeliv',JSON.stringify([...PICK]));delivDraw()};delivDraw();
+const SIZE=b=>b>1e9?(b/1e9).toFixed(1)+' GB':b>1e6?(b/1e6).toFixed(1)+' MB':Math.max(1,Math.round(b/1e3))+' KB';
+const KNAME={video:'Video',script:'Script',voiceover:'Voiceover',clips:'Clips',timeline:'Timeline',resolve_project:'Resolve project',package:'Full package'};
+function files(j){const fs=j.files||[];if(!fs.length)return'';const by={};fs.forEach(f=>(by[f.kind]=by[f.kind]||[]).push(f));
+  return '<div class="files">'+Object.keys(KNAME).filter(k=>by[k]).map(k=>`<div class="k">${KNAME[k]}</div>`+by[k].map(f=>
+    `<div><a href="api/jobs/${j.id}/files/${f.name.split('/').map(encodeURIComponent).join('/')}" download>${esc(f.name)}</a><span class="sz">${SIZE(f.bytes)}</span></div>`).join('')).join('')+'</div>'}
 async function api(path,opt){const r=await fetch(path,opt);const t=await r.text();let d;try{d=JSON.parse(t)}catch(e){d={error:t}}if(!r.ok)throw new Error(d.error||r.status);return d}
 async function info(){try{INFO=await api('api/info')}catch(e){}
   const names={none:'No voice',openai:'OpenAI-compatible',elevenlabs:'ElevenLabs',odysseus:'Odysseus'};
@@ -67,7 +85,7 @@ function voiceHint(){const v=$('#voice').value;$('#vname').disabled=(v==='none'|
 $('#voice').onchange=()=>{localStorage.setItem('svVoice',$('#voice').value);voiceHint()};
 $('#go').onclick=async()=>{const v=$('#voice').value,n=$('#vname').value.trim()||(v==='elevenlabs'?INFO.elevenlabs_voice:v==='openai'?INFO.openai_voice:'');
   const body={url:$('#url').value.trim(),length:$('#lenc').value.trim()||LEN,notes:$('#notes').value.trim()||'auto',
-    voice:(v==='elevenlabs'||v==='openai')&&n?v+':'+n:v,editor:$('#editor').value,model:$('#model').value.trim()};
+    voice:(v==='elevenlabs'||v==='openai')&&n?v+':'+n:v,editor:$('#editor').value,model:$('#model').value.trim(),deliverables:[...PICK]};
   $('#go').disabled=true;$('#msg').className='msg';$('#msg').textContent='adding...';
   try{const j=await api('api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     $('#msg').textContent='Queued.';$('#url').value='';$('#notes').value='';load()}
@@ -83,13 +101,16 @@ async function load(){let js;try{js=await api('api/jobs')}catch(e){return}
       <div class="meta">${esc(len)} &middot; voice ${esc(r.voice)}${r.model?' &middot; model '+esc(r.model):''} &middot;${r.notes&&r.notes!=='auto'?'&ldquo;'+esc(r.notes.slice(0,140))+'&rdquo;':'auto'}${j.status==='done'?' &middot; '+dur(j.seconds)+' made with '+esc(j.editor):''}${live?' &middot; '+esc(j.step||''):''}</div>
       ${live?`<div class="bar"><i style="width:${Math.round((j.progress||0)*100)}%"></i></div>`:''}
       ${j.error?`<div class="err">${esc(j.error)}</div>`:''}
-      <div class="btns">${j.status==='done'?`<button data-a="watch">Watch</button><a href="api/jobs/${j.id}/video" download><button>Download</button></a>`:''}
-        ${live?'<button data-a="cancel">Cancel</button>':''}${['failed','cancelled'].includes(j.status)?'<button data-a="retry">Try again</button>':''}
+      <div class="btns">${j.status==='done'?`<button data-a="watch">Watch</button><a href="api/jobs/${j.id}/video" download><button>Download video</button></a>`
+        +((j.files||[]).some(f=>f.kind==='package')?`<a href="api/jobs/${j.id}/files/${encodeURIComponent((j.files.find(f=>f.kind==='package')||{}).name||'')}" download><button>Download all (zip)</button></a>`:'')
+        +((j.files||[]).length>1?'<button data-a="files">Files</button>':''):''}
+        ${live?'<button data-a="cancel">Cancel</button>':''}${['failed','cancelled'].includes(j.status)?'<button data-a="retry">Try again</button>':''}${live?'':'<button data-a="remove">Remove</button>'}
         <button data-a="log">Log</button></div>
-      ${OPEN[j.id]==='watch'?`<video controls src="api/jobs/${j.id}/video"></video>`:''}${OPEN[j.id]==='log'?`<pre data-log="${j.id}">loading...</pre>`:''}</div>`}).join('');
+      ${OPEN[j.id]==='watch'?`<video controls src="api/jobs/${j.id}/video"></video>`:''}${OPEN[j.id]==='files'?files(j):''}${OPEN[j.id]==='log'?`<pre data-log="${j.id}">loading...</pre>`:''}</div>`}).join('');
   document.querySelectorAll('pre[data-log]').forEach(async p=>{try{p.textContent=await (await fetch('api/jobs/'+p.dataset.log+'/log')).text()||'(empty)'}catch(e){}})}
 $('#jobs').onclick=async e=>{const b=e.target.closest('button[data-a]');if(!b)return;const id=b.closest('.job').dataset.id,a=b.dataset.a;
-  if(a==='watch'||a==='log'){OPEN[id]=OPEN[id]===a?null:a;load();return}
+  if(a==='watch'||a==='log'||a==='files'){OPEN[id]=OPEN[id]===a?null:a;load();return}
+  if(a==='remove'&&!confirm('Remove this video from the queue and delete its files?'))return;
   b.disabled=true;try{await api(`api/jobs/${id}/${a}`,{method:'POST'})}catch(err){alert(err.message)}load()};
 info();load();setInterval(()=>{if(!Object.values(OPEN).includes('watch'))load()},4000);   // not while a video plays
 </script></body></html>"""

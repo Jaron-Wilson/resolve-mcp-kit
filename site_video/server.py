@@ -2,11 +2,15 @@
 
 GET  /                         the page: a form and the queue
 GET  /api/jobs                 every job, newest first
-POST /api/jobs                 {"url", "length", "notes", "voice", "editor", "name", "model"} -> the new job
+POST /api/jobs                 {"url", "length", "notes", "voice", "editor", "name", "model", "deliverables"} -> the new job
+                               deliverables: a list from video, script, voiceover, clips, timeline, resolve_project,
+                               package (see deliver.py); "all" for every one
 GET  /api/jobs/<id>            one job
 POST /api/jobs/<id>/cancel     stop it
 POST /api/jobs/<id>/retry      run a failed or cancelled job again (finished stages are kept)
+POST /api/jobs/<id>/remove     delete a job that is not running, and its files
 GET  /api/jobs/<id>/video      the finished MP4 (supports Range, so browsers can seek)
+GET  /api/jobs/<id>/files/<name> one of the job's deliverables (names are in job["files"])
 GET  /api/jobs/<id>/log        the job's log
 GET  /api/info                 voices, script models and editors this server offers
 
@@ -18,10 +22,12 @@ import hmac
 import json
 import os
 import re
+import shutil
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from . import pipeline
+from .deliver import KINDS
 from .queue import Queue
 
 TOKEN = os.environ.get("SITE_VIDEO_TOKEN", "")
@@ -37,7 +43,7 @@ def info() -> dict:
         voices.append("odysseus")
     from . import llm, resolve_edit
     return {"voices": voices, "default_voice": os.environ.get("SITE_VIDEO_DEFAULT_VOICE", voices[-1]),
-            "models": llm.models(), "default_model": llm.settings()["model"],
+            "models": llm.models(), "default_model": llm.settings()["model"], "deliverables": list(KINDS),
             "editors": list(pipeline.EDITORS), "resolve": resolve_edit.available(),
             "elevenlabs_voice": os.environ.get("SITE_VIDEO_ELEVENLABS_VOICE", ""),
             "openai_voice": os.environ.get("SITE_VIDEO_OPENAI_VOICE", "alloy")}
@@ -75,6 +81,21 @@ def make_handler(q: Queue):
         def _body(self):
             n = int(self.headers.get("Content-Length") or 0)
             return json.loads(self.rfile.read(n) or b"{}") if n else {}
+
+        def _file(self, path):
+            types = {".mp4": "video/mp4", ".wav": "audio/wav", ".zip": "application/zip", ".md": "text/markdown",
+                     ".json": "application/json", ".png": "image/png"}
+            ext = os.path.splitext(path)[1].lower()
+            if ext == ".mp4":
+                return self._video(path)
+            self.send_response(200)
+            self.send_header("Content-Type", types.get(ext, "application/octet-stream"))
+            self.send_header("Content-Length", str(os.path.getsize(path)))
+            self.send_header("Content-Disposition", f'attachment; filename="{os.path.basename(path)}"')
+            self.end_headers()
+            if self.command != "HEAD":
+                with open(path, "rb") as f:
+                    shutil.copyfileobj(f, self.wfile, 1 << 20)
 
         def _video(self, path):
             size = os.path.getsize(path)
@@ -129,7 +150,7 @@ def make_handler(q: Queue):
                     req = pipeline.request(str(b.get("url") or "").strip(), b.get("length") or "auto",
                                            b.get("notes") or "auto", b.get("voice") or "none",
                                            b.get("editor") or "auto", "", str(b.get("name") or "")[:60],
-                                           str(b.get("model") or ""))
+                                           str(b.get("model") or ""), b.get("deliverables") or "video")
                     return self._send(201, q.submit(req))
                 jid = parts[2]
                 if len(parts) == 3 and method == "GET":
@@ -138,9 +159,15 @@ def make_handler(q: Queue):
                     return self._send(200, q.cancel(jid))
                 if len(parts) == 4 and method == "POST" and parts[3] == "retry":
                     return self._send(200, q.retry(jid))
+                if len(parts) == 4 and method == "POST" and parts[3] == "remove":
+                    return self._send(200, q.remove(jid))
                 if len(parts) == 4 and method in ("GET", "HEAD") and parts[3] == "video":
                     path = q.video_path(jid)
                     return self._video(path) if path else self._send(404, {"error": "no video yet"})
+                if len(parts) >= 5 and method in ("GET", "HEAD") and parts[3] == "files":
+                    from urllib.parse import unquote
+                    path = q.file_path(jid, unquote("/".join(parts[4:])))
+                    return self._file(path) if path else self._send(404, {"error": "no such file"})
                 if len(parts) == 4 and method == "GET" and parts[3] == "log":
                     try:
                         with open(os.path.join(q.jobs_dir, jid, "log.txt"), encoding="utf-8") as f:

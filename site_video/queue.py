@@ -94,6 +94,25 @@ class Queue:
         self._wake.set()
         return self.get(jid)
 
+    def remove(self, jid: str) -> Dict:
+        """Delete a job that is not running, with its files. (Its Resolve project, if any, stays in Resolve.)"""
+        import shutil
+        j = self.get(jid)
+        if j["status"] in ACTIVE or jid in self._threads:
+            raise ValueError(f"the job is {j['status']}; cancel it first")
+        with self._lock:
+            shutil.rmtree(self._path(jid), ignore_errors=True)
+        return {"id": jid, "removed": True}
+
+    def file_path(self, jid: str, name: str) -> Optional[str]:
+        """A deliverable of a finished job, by its name in job["files"] (only those, so nothing else can be read)."""
+        j = self.get(jid)
+        if not any(f.get("name") == name for f in j.get("files") or []):
+            return None
+        base = os.path.realpath(os.path.join(self._path(jid), "deliverables"))
+        path = os.path.realpath(os.path.join(base, *name.split("/")))
+        return path if path.startswith(base + os.sep) and os.path.isfile(path) else None
+
     def video_path(self, jid: str) -> Optional[str]:
         v = self.get(jid).get("video")
         return v if v and os.path.isfile(v) else None
