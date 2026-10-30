@@ -211,6 +211,7 @@ ffmpeg comes with `imageio-ffmpeg`; set `FFMPEG` to use your own.
 | `SITE_VIDEO_HOME` | Where jobs and videos go (default `~/site-videos`). |
 | `SITE_VIDEO_TOKEN` | If set, the queue's HTTP API and page need it. |
 | `SITE_VIDEO_RESOLVE_PROJECT` | The Resolve project for edits (default `Site videos`). |
+| `SITE_VIDEO_START_RESOLVE` | Resolve's program file: if set, a Resolve edit opens Resolve when it is closed (run the queue in your desktop session). |
 
 ### One video, in a terminal
 
@@ -252,7 +253,11 @@ turn "go through this site and make a 5 minute video, make sure you show X" into
 ### Limits
 
 - The Resolve edit runs on the computer with Resolve and switches it to the "Site videos" project for the edit,
-  opening your project again afterwards. It has been run on Resolve Studio on Windows; macOS and Linux are untested.
+  opening your project again afterwards. Developed against Resolve Studio 21.1 on Windows; macOS and Linux are
+  untested.
+- Resolve 21 opens on its Project Manager screen, and while that screen is up, scripting cannot open or create
+  projects. When the queue opens Resolve itself (`SITE_VIDEO_START_RESOLVE`) it uses `-nogui` (Studio), which has
+  no such screen; if Resolve is already open on the Project Manager, open any project first.
 - Requested lengths are targets: a scene is never shorter than its narration, and the title cards add a few
   seconds, so a 30 second request usually comes out at 35 to 40.
 - Sites that need a login, block headless browsers or show a full-screen pop-up the recorder cannot dismiss will not

@@ -81,11 +81,16 @@ def main(argv=None):
         if name == "get":
             p.add_argument("-o", "--output", default="")
         p.add_argument("--server", default=DEFAULT_SERVER)
+    sub.add_parser("odysseus-mod", help="run as an Odysseus mod (started by Odysseus)")
     p = sub.add_parser("_stage")      # internal: one stage of a queued job, in its own process
     p.add_argument("stage", choices=["prep", "edit"])
     p.add_argument("job_dir")
     a = ap.parse_args(argv)
 
+    if a.cmd == "odysseus-mod":
+        from .odysseus_mod import main as mod_main
+        mod_main()
+        return
     if a.cmd == "_stage":
         from .queue import run_stage
         sys.exit(run_stage(a.stage, a.job_dir))

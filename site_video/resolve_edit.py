@@ -25,6 +25,29 @@ def available() -> bool:
         return False
 
 
+def start_if_needed(log=print, wait_s: int = 180) -> bool:
+    """With SITE_VIDEO_START_RESOLVE set to Resolve's program file, open Resolve when it is not running and wait
+    until its scripting answers. Run the queue in your desktop session, so Resolve opens there."""
+    if available():
+        return True
+    exe = os.environ.get("SITE_VIDEO_START_RESOLVE", "")
+    if not exe or not os.path.exists(exe):
+        return False
+    import subprocess
+    # -nogui (Studio): no window and no Project Manager screen, which would otherwise block opening projects
+    args = os.environ.get("SITE_VIDEO_START_RESOLVE_ARGS", "-nogui").split()
+    log("opening DaVinci Resolve " + " ".join(args))
+    subprocess.Popen([exe, *args], cwd=os.path.dirname(exe))
+    end = time.time() + wait_s
+    while time.time() < end:
+        time.sleep(5)
+        if available():
+            time.sleep(5)              # let the project manager finish loading
+            return True
+    log(f"Resolve did not answer within {wait_s} s")
+    return False
+
+
 def _set_format(obj) -> None:
     for k, v in (("timelineFrameRate", str(FPS)), ("timelineResolutionWidth", str(WIDTH)),
                  ("timelineResolutionHeight", str(HEIGHT)), ("timelinePlaybackFrameRate", str(FPS))):
@@ -56,7 +79,11 @@ def edit(work: str, name: str, clips: List[str], mix: str, captions: List[str], 
         if not p:
             p = pm.CreateProject(PROJECT)
             if not p:
-                raise RuntimeError(f"Resolve would not create or open the project {PROJECT!r}")
+                stuck = resolve.GetCurrentPage() is None
+                raise RuntimeError(
+                    f"Resolve would not create or open the project {PROJECT!r}"
+                    + (". It is showing its Project Manager, which blocks scripting: open any project in Resolve, or "
+                       "close Resolve so the next try starts it in the background (-nogui)" if stuck else ""))
             _set_format(p)
         mp = p.GetMediaPool()
         root = mp.GetRootFolder()

@@ -107,9 +107,13 @@ def prep(job_dir: str, req: Dict, step: Callable[[str, float], None] = lambda s,
 def edit(job_dir: str, req: Dict, ready: Dict, step: Callable[[str, float], None] = lambda s, f: None) -> Dict:
     log = Log(os.path.join(job_dir, "log.txt"))
     editor = req["editor"]
-    if editor == "auto":
+    if editor in ("auto", "resolve"):
         from . import resolve_edit
-        editor = "resolve" if resolve_edit.available() else "ffmpeg"
+        up = resolve_edit.start_if_needed(log)
+        if editor == "resolve" and not up:
+            raise RuntimeError("DaVinci Resolve is not running here (and SITE_VIDEO_START_RESOLVE could not open it); "
+                               "open it, or use the ffmpeg editor")
+        editor = "resolve" if up else "ffmpeg"
         log(f"editor: {editor}" + ("" if editor == "resolve" else " (DaVinci Resolve is not reachable here)"))
     step("editing in DaVinci Resolve" if editor == "resolve" else "joining with ffmpeg", 0.86)
     if editor == "resolve":

@@ -119,3 +119,30 @@ def test_job_ids_cannot_escape_the_jobs_folder(tmp_path):
     for bad in ("../x", "a/b", ".hidden", ""):
         with pytest.raises(KeyError):
             q.get(bad)
+
+
+def test_the_mod_only_accepts_requests_signed_by_odysseus(monkeypatch):
+    import hashlib
+    import hmac
+    import time
+    from site_video import odysseus_mod as m
+    monkeypatch.setattr(m, "TOKEN", "odm_test")
+
+    def sign(user, ts):
+        return hmac.new(b"odm_test", f"v1\n{m.MOD_ID}\n{user}\n{ts}".encode(), hashlib.sha256).hexdigest()
+    ts = str(int(time.time()))
+    assert m._signed({"X-Odysseus-User": "alice", "X-Odysseus-Ts": ts, "X-Odysseus-Sig": sign("alice", ts)})
+    assert not m._signed({"X-Odysseus-User": "mallory", "X-Odysseus-Ts": ts, "X-Odysseus-Sig": sign("alice", ts)})
+    old = str(int(time.time()) - 1000)
+    assert not m._signed({"X-Odysseus-User": "alice", "X-Odysseus-Ts": old, "X-Odysseus-Sig": sign("alice", old)})
+    assert not m._signed({})
+
+
+def test_the_mod_tells_the_model_what_a_job_is_doing():
+    from site_video.odysseus_mod import _job_text
+    j = {"id": "j1", "status": "preparing", "step": "recording scene 2/5", "progress": 0.5,
+         "request": {"url": "https://ex.com", "length": 120, "voice": "odysseus", "notes": "show pricing"}}
+    t = _job_text(j, "/mods/site-video")
+    assert "recording scene 2/5, 50%" in t and "show pricing" in t
+    t = _job_text(dict(j, status="done", seconds=118.2, editor="resolve"), "/mods/site-video")
+    assert "118.2 s" in t and "resolve" in t and "/mods/site-video/" in t
