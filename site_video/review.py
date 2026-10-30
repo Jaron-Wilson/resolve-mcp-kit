@@ -42,7 +42,9 @@ def _brief(s: Dict) -> str:
     else:
         steps = "; ".join(f"{a['do']} {a.get('into', '')} {a.get('to') or a.get('text') or ''}".replace("  ", " ").strip()
                           for a in s.get("actions") or [])
-        what = f"the web page {s['url']}" + (f", where these steps happen: {steps}" if steps else "")
+        where = ("the page the previous scene ended on (its clicks may have opened a new one)" if s.get("continue")
+                 else f"the web page {s['url']}")
+        what = where + (f", where these steps happen: {steps}" if steps else "")
     return (f"It shows {what}.\nCaption on screen: {caps or '(none)'}\n"
             f"Narration over it: {s.get('narration') or '(none)'}")
 
@@ -122,7 +124,10 @@ def fix_request(verdicts: List[Dict]) -> str:
         lines.append(f"Scene {v['scene']}: the recording really shows: {v['saw'] or 'unknown'}. Problem: {v['problem']}")
     if not lines:
         return ""
-    return ("The recorded video does not match the script in these scenes. For each, change only that scene: either "
-            "steps that will work on that page (use only headings, buttons and fields listed for it), or captions and "
-            "narration that say what the recording really shows. Keep every other scene exactly as it is.\n"
+    return ("The recorded video does not match the script in these scenes. Fix only these scenes and keep every other "
+            "scene exactly as it is. For each one, in this order of preference: give it steps that really make its "
+            "caption happen (on the person's own site, the clicks that create it, continuing from the scene before); "
+            "or show a page that already has what the caption says; or, only if neither is possible, captions and "
+            "narration about a feature that page really offers. Captions and narration sell the product: never "
+            "describe an error, an empty, blank or loading page, or what went wrong in the recording.\n"
             + "\n".join(lines))

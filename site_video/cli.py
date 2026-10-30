@@ -21,6 +21,7 @@ import json
 import os
 import sys
 import time
+import urllib.error
 import urllib.request
 
 DEFAULT_SERVER = os.environ.get("SITE_VIDEO_SERVER", "http://127.0.0.1:8940")
@@ -35,8 +36,11 @@ def _http(server, method, path, body=None, raw=False):
     req = urllib.request.Request(server.rstrip("/") + path, json.dumps(body).encode() if body is not None else None,
                                  headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=600) as r:
-            return r if raw else json.load(r)
+        r = urllib.request.urlopen(req, timeout=600)
+        if raw:
+            return r                    # the caller reads it, so it must stay open
+        with r:
+            return json.load(r)
     except urllib.error.HTTPError as e:
         try:
             msg = json.load(e).get("error")
@@ -97,8 +101,9 @@ def main(argv=None):
         p.add_argument("--deliver", default="video",
                        help="comma list: video, script, voiceover, clips, timeline, resolve_project, package, or all")
         p.add_argument("--name", default="")
-        p.add_argument("--cursor", default="dot", choices=["dot", "arrow", "hand", "ring", "none"],
-                       help="the cursor on website scenes (ring: arrow with a highlight and a ripple on clicks)")
+        p.add_argument("--cursor", default="dot", choices=["auto", "dot", "arrow", "hand", "ring", "none"],
+                       help="the cursor on website scenes (auto: an arrow only in scenes that point, click or type; "
+                            "ring: arrow with a highlight and a ripple on clicks)")
         p.add_argument("--my-site", action="store_true",
                        help="your own site: the video may press buttons that save or create things (never delete, buy "
                             "or sign out). Sign in first with: site-video signin URL")
@@ -130,7 +135,7 @@ def main(argv=None):
     p = sub.add_parser("change", help="change a finished video in words, then make it again (only what changed)")
     p.add_argument("id")
     p.add_argument("change")
-    p.add_argument("--cursor", default="", choices=["", "dot", "arrow", "hand", "ring", "none"])
+    p.add_argument("--cursor", default="", choices=["", "auto", "dot", "arrow", "hand", "ring", "none"])
     p.add_argument("--dry-run", action="store_true", help="only show what would change")
     p.add_argument("--server", default=DEFAULT_SERVER)
     sub.add_parser("odysseus-mod", help="run as an Odysseus mod (started by Odysseus)")
@@ -161,7 +166,15 @@ def main(argv=None):
         except ValueError as e:
             sys.exit(f"error: {e}")
         out = a.out or os.path.join(DEFAULT_HOME, "jobs", time.strftime("%Y%m%d-%H%M%S-cli"))
-        res = pipeline.run(out, req)
+        try:
+            res = pipeline.run(out, req)
+        except urllib.error.URLError as e:
+            from . import llm
+            sys.exit(f"error: a server could not be reached ({e.reason}). The script model is at {llm.settings()['url']}: "
+                     "start it, or set SITE_VIDEO_LLM_URL and SITE_VIDEO_LLM_MODEL (see Model setup in the README). "
+                     "A voice server has its own SITE_VIDEO_TTS_URL.")
+        except (RuntimeError, ValueError, OSError) as e:
+            sys.exit(f"error: {e}\nThe job's log is {os.path.join(os.path.abspath(out), 'log.txt')}")
         print(json.dumps(res, indent=2))
         return
     if a.cmd == "serve":
@@ -215,7 +228,7 @@ def main(argv=None):
     if a.cmd == "get":
         r = _http(a.server, "GET", f"/api/jobs/{a.id}/video", raw=True)
         name = a.output or (r.headers.get("Content-Disposition", "").split('filename="')[-1].rstrip('"') or a.id + ".mp4")
-        with open(name, "wb") as f:
+        with r, open(name, "wb") as f:
             while True:
                 chunk = r.read(1 << 20)
                 if not chunk:

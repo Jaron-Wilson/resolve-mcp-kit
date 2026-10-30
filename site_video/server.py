@@ -20,6 +20,12 @@ POST /api/jobs/<id>/revise     {"plan", "cursor"} -> the job, queued again; only
 GET  /api/jobs/<id>/video      the finished MP4 (supports Range, so browsers can seek)
 GET  /api/jobs/<id>/files/<name> one of the job's deliverables (names are in job["files"])
 GET  /api/jobs/<id>/log        the job's log
+GET  /cursors                  the cursor looks and how they move, live
+GET  /api/jobs/<id>/live.jpg   what the job's browser shows right now (while it explores or records)
+POST /api/signin               {"url"} open a sign-in window on THIS computer's screen (see session.py); GET ?url= its status,
+                               DELETE forgets the saved sign-in
+POST /api/signin/import        {"url", "state"} save a sign-in sent by the browser extension
+GET  /api/signin/extension.zip the browser extension; its config.js holds this server's own address (from the request)
 GET  /api/info                 voices, script models and editors this server offers
 
 Over HTTP a job's media must be uploads, or files inside the folders in SITE_VIDEO_MEDIA_DIRS (separated by the
@@ -44,6 +50,37 @@ from .util import read_json
 
 TOKEN = os.environ.get("SITE_VIDEO_TOKEN", "")
 MAX_UPLOAD = int(os.environ.get("SITE_VIDEO_MAX_UPLOAD_MB", "4096")) << 20
+
+
+EXTENSION_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "browser_extension")
+FALLBACK_ADDRESS = "http://127.0.0.1:8940"
+
+
+def own_address(host_header, proto_header=None) -> str:
+    """This queue's address as the caller reached it, like http://HOST:8940, from the Host header (and
+    X-Forwarded-Proto behind a proxy). Anything that is not a plain host[:port] gives the loopback fallback, so a
+    forged header cannot put text into the extension's settings."""
+    host = (host_header or "").strip()
+    if not re.fullmatch(r"(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(:\d{1,5})?", host):
+        return FALLBACK_ADDRESS
+    host = re.sub(r"^0\.0\.0\.0(?=:|$)", "127.0.0.1", host)        # 0.0.0.0 is where a server listens, not where to go
+    proto = (proto_header or "").split(",")[0].strip().lower()
+    return f"{proto if proto in ('http', 'https') else 'http'}://{host}"
+
+
+def extension_zip(address: str) -> bytes:
+    """The browser extension as a zip, with `address` written into config.js as the queue it talks to by default."""
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for n in sorted(os.listdir(EXTENSION_DIR)):
+            if n != "config.js":
+                z.write(os.path.join(EXTENSION_DIR, n), "site-video-signin/" + n)
+        z.writestr("site-video-signin/config.js",
+                   "// Written by the queue that served this zip. It is only the starting value: change it in the popup.\n"
+                   f"self.SITE_VIDEO_DEFAULT_SERVER = {json.dumps(address)};\n")
+    return buf.getvalue()
 
 
 def _allowed_media(q: Queue, items) -> list:
@@ -164,6 +201,10 @@ def make_handler(q: Queue):
                 extra["Set-Cookie"] = f"sv_token={qs['token'][0]}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000"
             parts = [p for p in u.path.split("/") if p]
             try:
+                if method == "GET" and u.path == "/cursors":
+                    # the cursor looks and how they move, live, for choosing one
+                    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "cursors.html"), encoding="utf-8") as f:
+                        return self._send(200, f.read(), "text/html; charset=utf-8")
                 if method == "GET" and u.path == "/":
                     from .page import PAGE
                     return self._send(200, PAGE, "text/html; charset=utf-8", extra)
@@ -177,6 +218,16 @@ def make_handler(q: Queue):
                     name = unquote((qs.get("name") or [""])[0])
                     path = q.save_upload(name, self.rfile, size)
                     return self._send(201, {"file": path, "name": os.path.basename(path), "bytes": size})
+                if u.path == "/api/signin/import" and method == "POST":
+                    # the site-video browser extension sends the sign-in the person's own browser already has
+                    from . import session
+                    b = self._body()
+                    return self._send(200, session.save_from_browser(str(b.get("url") or ""), b.get("state")))
+                if u.path == "/api/signin/extension.zip" and method == "GET":
+                    # the extension points at the queue it was downloaded from: this request's own address
+                    address = own_address(self.headers.get("Host"), self.headers.get("X-Forwarded-Proto"))
+                    return self._send(200, extension_zip(address), "application/zip",
+                                      {"Content-Disposition": 'attachment; filename="site-video-signin.zip"'})
                 if u.path == "/api/signin":
                     # a sign-in window opens on this computer's screen; the person logs in there and closes it
                     from . import session
@@ -242,6 +293,13 @@ def make_handler(q: Queue):
                     from urllib.parse import unquote
                     path = q.file_path(jid, unquote("/".join(parts[4:])))
                     return self._file(path) if path else self._send(404, {"error": "no such file"})
+                if len(parts) == 4 and method == "GET" and parts[3] == "live.jpg" and re.fullmatch(r"[\w-]+", jid):
+                    # what the job's browser shows now (explore and record write it), for the page's live view
+                    try:
+                        with open(os.path.join(q.jobs_dir, jid, "live.jpg"), "rb") as f:
+                            return self._send(200, f.read(), "image/jpeg")
+                    except OSError:
+                        return self._send(404, {"error": "nothing to show yet"})
                 if len(parts) == 4 and method == "GET" and parts[3] == "log":
                     try:
                         with open(os.path.join(q.jobs_dir, jid, "log.txt"), encoding="utf-8") as f:

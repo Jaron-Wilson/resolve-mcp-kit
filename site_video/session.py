@@ -1,10 +1,11 @@
 """Signing in to your own site, once, so the explorer and the recorder see it the way you do.
 
 `signin(url)` opens a real browser window on this computer at the site; you log in there by hand and close the window.
-It is your installed Chrome or Edge, started as a normal browser with a profile of its own (SITE_VIDEO_SESSIONS/
-profile), not a browser Playwright launched: Google refuses to sign anyone in to those ("This browser or app may not
-be secure"), so "Sign in with Google" only works this way. site_video only reads the window's cookies over Chrome's
-debugging port while it is open. The videos use the site's own sign-in cookie, not your Google account.
+It is your installed Chrome or Edge, started as a plain browser (no debugging port, no automation switches) with a
+profile of its own (SITE_VIDEO_SESSIONS/profile): Google refuses to sign anyone in to a browser that is driven or
+debuggable ("This browser or app may not be secure"), so "Sign in with Google" only works this way. The window looks
+like a new, empty browser: that is the profile. When you close it, site_video opens that profile in the background
+and copies the site's cookies out. The videos use the site's own sign-in cookie, not your Google account.
 The browser's cookies and storage for that site are saved in SITE_VIDEO_SESSIONS (~/.site-video/sessions), one file
 per site, and every later video of that site uses them. Your password never passes through site_video. `forget(url)`
 deletes the file. Only sign in to sites you own or are allowed to record.
@@ -79,11 +80,41 @@ def _real_browser() -> str:
     return ""
 
 
-def _free_port() -> int:
-    import socket
-    with socket.socket() as so:
-        so.bind(("127.0.0.1", 0))
-        return so.getsockname()[1]
+def _keep_session_cookies(profile: str) -> None:
+    """Set the profile to "Continue where you left off". A browser set that way keeps session cookies (the ones with
+    no expiry date, which many sites use for their login) on disk when it closes; otherwise closing the window would
+    throw the sign-in away before it could be read."""
+    d = os.path.join(profile, "Default")
+    os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, "Preferences")
+    try:
+        with open(p, encoding="utf-8") as f:
+            prefs = json.load(f)
+    except Exception:
+        prefs = {}
+    if prefs.get("session", {}).get("restore_on_startup") == 1:
+        return
+    prefs.setdefault("session", {})["restore_on_startup"] = 1
+    _save(prefs, p)
+
+
+def _profile_in_use(profile: str) -> bool:
+    """Whether a browser still has the profile open (an earlier sign-in window, say)."""
+    if os.name == "nt":
+        lock = os.path.join(profile, "lockfile")     # held open with no sharing while the browser runs
+        if not os.path.exists(lock):
+            return False
+        try:
+            with open(lock, "a"):
+                return False
+        except OSError:
+            return True
+    try:
+        pid = int(os.readlink(os.path.join(profile, "SingletonLock")).rsplit("-", 1)[1])
+        os.kill(pid, 0)
+        return True
+    except (OSError, ValueError, IndexError):
+        return False
 
 
 def _save(state, out: str) -> None:
@@ -94,42 +125,112 @@ def _save(state, out: str) -> None:
 
 
 def _signin_real(exe: str, url: str, out: str, log, wait_s: int) -> bool:
-    """Chrome/Edge as a plain process with its own profile; its cookies read over the debugging port until it closes."""
+    """Chrome/Edge started as a completely ordinary browser on a profile of its own: no debugging port and no
+    automation switches, since Google refuses to sign in a browser that has either. Once the person closes the
+    window, the same profile is opened in the background and the site's cookies are read from it."""
     import subprocess
     from playwright.sync_api import sync_playwright
-    port = _free_port()
     profile = os.path.join(folder(), "profile")
-    proc = subprocess.Popen([exe, f"--user-data-dir={profile}", f"--remote-debugging-port={port}",
-                             "--remote-debugging-address=127.0.0.1", "--no-first-run", "--no-default-browser-check",
-                             "--new-window", url])
-    saved, end = None, time.time() + wait_s
+    _keep_session_cookies(profile)
+    args = [exe, f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check", "--new-window", url]
+    if os.name != "nt":
+        # off Windows a plain Chrome encrypts cookies with the desktop keyring, which the background reader below
+        # cannot open; Windows keys them to the user account, the same for both
+        args.insert(2, "--password-store=basic")
+    started = time.time()
+    proc = subprocess.Popen(args)
+    end = started + wait_s
+    while time.time() < end and proc.poll() is None:
+        time.sleep(2)
+    if proc.poll() is None:
+        log("the sign-in window was still open after the wait; reading what it has so far")
+        proc.terminate()
+        try:
+            proc.wait(timeout=20)
+        except Exception:
+            proc.kill()
+    elif time.time() - started < 15 and _profile_in_use(profile):
+        # a browser already had this profile open (an earlier sign-in window): ours handed the page to it and quit
+        log("an earlier sign-in window is still open; the page opened there. Sign in, then close that window")
+        while time.time() < end and _profile_in_use(profile):
+            time.sleep(3)
+    time.sleep(2)                                   # let the browser finish writing its cookie store
+    saved = None
     with sync_playwright() as pw:
-        browser = None
-        while time.time() < end and proc.poll() is None:
+        for attempt in range(3):
             try:
-                if browser is None or not browser.is_connected():
-                    browser = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{port}", timeout=5000)
-                ctxs = browser.contexts
-                if ctxs:
-                    saved = ctxs[0].storage_state()      # kept current: once the window is closed it cannot be read
-            except Exception:
-                browser = None
-            time.sleep(2)
-        if proc.poll() is None:
-            proc.terminate()
+                ctx = pw.chromium.launch_persistent_context(profile, executable_path=exe, headless=True)
+                try:
+                    # the site is opened once so its own storage is read too: sign-ins through Firebase or
+                    # Supabase ("Sign in with Google" on many sites) keep the login there, not in a cookie
+                    page = ctx.new_page()
+                    try:
+                        page.goto(url, wait_until="load", timeout=30000)
+                        page.wait_for_timeout(2500)
+                    except Exception as e:
+                        log(f"  could not open {url} to read its storage ({type(e).__name__}); cookies only")
+                    saved = ctx.storage_state(indexed_db=True)
+                finally:
+                    ctx.close()
+                break
+            except Exception as e:                  # the profile may still be locked for a moment
+                log(f"  reading the sign-in ({type(e).__name__}); trying again")
+                time.sleep(4)
     if saved:
-        h = host(url)
-        # only this site's cookies are kept (the profile also holds Google's, which the videos do not need)
-        saved["cookies"] = [c for c in saved.get("cookies", []) if c.get("domain", "").lstrip(".").endswith(h.split(":")[0])
-                            or h.split(":")[0].endswith(c.get("domain", "").lstrip("."))]
-        def same(o):
-            try:
-                return host(o.get("origin", "")) == h
-            except ValueError:
-                return False
-        saved["origins"] = [o for o in saved.get("origins", []) if same(o)]
-        _save(saved, out)
+        _save(_only_site(saved, url), out)
     return bool(saved)
+
+
+def _only_site(state: Dict, url: str) -> Dict:
+    """Keep only this site's cookies and storage (a browser also holds Google's and every other site's)."""
+    h = host(url)
+    name = h.split(":")[0]
+
+    def mine(c):
+        d = str(c.get("domain", "")).lstrip(".").lower()
+        return bool(d) and (d == name or d.endswith("." + name) or name.endswith("." + d)) and "." in d
+
+    def same(o):
+        try:
+            return host(str(o.get("origin", ""))) == h
+        except ValueError:
+            return False
+    return {"cookies": [c for c in state.get("cookies") or [] if isinstance(c, dict) and mine(c)],
+            "origins": [o for o in state.get("origins") or [] if isinstance(o, dict) and same(o)]}
+
+
+_SAME_SITE = {"strict": "Strict", "lax": "Lax", "none": "None", "no_restriction": "None", "unspecified": "Lax"}
+
+
+def save_from_browser(url: str, state: Dict) -> Dict:
+    """Save a sign-in sent from the person's own browser (the site-video browser extension): the site's cookies and
+    page storage, as that browser has them now. Nothing has to be closed and no other profile is involved."""
+    if not isinstance(state, dict):
+        raise ValueError("send the sign-in as {cookies: [...], origins: [...]}")
+    cookies = []
+    for c in state.get("cookies") or []:
+        if not (isinstance(c, dict) and c.get("name") and isinstance(c.get("value"), str) and c.get("domain")):
+            continue
+        cookies.append({"name": str(c["name"]), "value": c["value"], "domain": str(c["domain"]),
+                        "path": str(c.get("path") or "/"), "expires": float(c.get("expires") or -1),
+                        "httpOnly": bool(c.get("httpOnly")), "secure": bool(c.get("secure")),
+                        "sameSite": _SAME_SITE.get(str(c.get("sameSite") or "lax").lower(), "Lax")})
+    origins = []
+    for o in state.get("origins") or []:
+        if not isinstance(o, dict) or not o.get("origin"):
+            continue
+        ls = [{"name": str(i["name"]), "value": str(i.get("value", ""))}
+              for i in o.get("localStorage") or [] if isinstance(i, dict) and "name" in i]
+        entry = {"origin": str(o["origin"]).rstrip("/"), "localStorage": ls}
+        if isinstance(o.get("indexedDB"), list) and o["indexedDB"]:
+            entry["indexedDB"] = o["indexedDB"]
+        origins.append(entry)
+    kept = _only_site({"cookies": cookies, "origins": origins}, url)
+    if not kept["cookies"] and not any(o["localStorage"] or o.get("indexedDB") for o in kept["origins"]):
+        raise ValueError(f"nothing from {host(url)} came with it: open the site in that browser, signed in, and try again")
+    _save(kept, path_for(url))
+    return {**status(url), "cookies": len(kept["cookies"]),
+            "storage": sum(len(o["localStorage"]) for o in kept["origins"])}
 
 
 def signin(url: str, log=print, wait_s: int = 900) -> Dict:

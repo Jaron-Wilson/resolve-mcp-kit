@@ -42,7 +42,8 @@ pre{white-space:pre-wrap;font-size:12px;color:var(--dim);max-height:260px;overfl
 .mine{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;margin-top:6px;font-size:.9em}.mine label{display:flex;gap:6px;align-items:flex-start;font-weight:400}.mine input{width:auto}.sh{display:flex;gap:6px;align-items:center}.sh b{white-space:nowrap}.sh input{flex:1;min-width:0}
 .sr{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}.sr input{flex:1;min-width:140px}.sr input[type=number]{flex:0 0 90px;min-width:0}
 .sr select{width:auto;max-width:100%}.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}@media(max-width:720px){.g3{grid-template-columns:1fr}}
-.diff{color:var(--ok);font-size:13px;margin:8px 0;padding-left:18px}.hint{color:var(--dim);font-size:13px;margin:6px 0 0}
+.live{margin-top:10px}.live img{display:block;width:100%;border-radius:8px;border:1px solid var(--line);background:#000}
+.diff{color:var(--ok);font-size:13px;margin:8px 0;padding-left:18px}.hint{color:var(--dim);font-size:13px;margin:6px 0 0}a.hint{display:block;color:var(--acc);text-decoration:none}a.hint:hover{text-decoration:underline}
 </style></head><body><main>
 <h1>Site videos</h1><p class="sub">Give it a link, your own videos, or both. It writes a script, records the site in a browser, picks the best moments of your videos, adds a voiceover and edits a promo video.</p>
 <div class="card">
@@ -58,7 +59,10 @@ pre{white-space:pre-wrap;font-size:12px;color:var(--dim);max-height:260px;overfl
     <div id="urlbox"><label for="url">Website</label><input id="url" placeholder="https://example.com" autocomplete="off">
       <div class="mine"><label><input type="checkbox" id="changes"> This is my site: it may press buttons that save or
         create things, as my notes ask (never delete, buy or sign out)</label>
-        <span><button type="button" id="signin">Sign in as me</button> <span id="sstat" class="meta"></span></span></div></div>
+        <span><button type="button" id="signin">Sign in as me</button> <span id="sstat" class="meta"></span></span></div>
+      <p class="hint">Already signed in to it in your own Chrome or Edge? <a href="api/signin/extension.zip">Get the
+        sign-in extension</a> (unzip it, open chrome://extensions, turn on Developer mode, Load unpacked), then press it
+        on your site: your everyday browser's sign-in is used, no new window.</p></div>
     <div><label>Length</label><div class="seg" id="len"></div></div>
     <div><label for="lenc">or exactly</label><input id="lenc" placeholder="e.g. 2:30 or 90s"></div>
   </div>
@@ -68,7 +72,7 @@ pre{white-space:pre-wrap;font-size:12px;color:var(--dim);max-height:260px;overfl
     <div><label for="voice">Voice</label><select id="voice"></select></div>
     <div><label for="vname">Voice name or id</label><input id="vname" placeholder="optional"></div>
     <div><label for="model">Script model</label><input id="model" list="models" placeholder="default" autocomplete="off"><datalist id="models"></datalist></div>
-    <div><label for="cursor">Cursor</label><select id="cursor"><option value="dot">Dot in the site's color</option><option value="arrow">Arrow</option><option value="hand">Pointing hand</option><option value="ring">Arrow with highlight</option><option value="none">No cursor</option></select></div>
+    <div><label for="cursor">Cursor</label><select id="cursor"><option value="auto">Auto: only where it points or clicks</option><option value="dot">Dot in the site's color</option><option value="arrow">Arrow</option><option value="hand">Pointing hand</option><option value="ring">Arrow with highlight</option><option value="none">No cursor</option></select><a class="hint" href="cursors" target="_blank" rel="noopener">See what each cursor looks like</a></div>
     <div><label for="editor">Editor</label><select id="editor"><option value="auto">Auto (Resolve if it is open)</option><option value="resolve">DaVinci Resolve</option><option value="ffmpeg">Plain ffmpeg</option></select></div>
   </div>
   <label style="margin-top:14px">Deliverables</label><div class="chips" id="deliv"></div>
@@ -151,7 +155,7 @@ $('#go').onclick=async()=>{const v=$('#voice').value,n=$('#vname').value.trim()|
     $('#msg').textContent='Queued.';$('#url').value='';$('#notes').value='';VIDS=[];srcDraw();load()}
   catch(e){$('#msg').className='msg bad';$('#msg').textContent=e.message}finally{$('#go').disabled=false}};
 const OPEN={},EDIT={};
-const CUR={dot:'dot in the site color',arrow:'arrow',hand:'pointing hand',ring:'arrow with highlight',none:'none'};
+const CUR={auto:'auto (only where it points or clicks)',dot:'dot in the site color',arrow:'arrow',hand:'pointing hand',ring:'arrow with highlight',none:'none'};
 const pathGet=(o,k)=>k.split('.').reduce((x,p)=>x==null?x:x[/^[0-9]+$/.test(p)?+p:p],o);
 function pathSet(o,k,v){const ps=k.split('.');const last=ps.pop();const t=pathGet(o,ps.join('.'))??o;t[/^[0-9]+$/.test(last)?+last:last]=v}
 // every scene gets two caption fields, and the opening and closing cards their fields, so there is a box to type in
@@ -189,7 +193,7 @@ function chgHtml(id){const E=EDIT[id];if(!E)return '<p class="meta">loading the 
     ${E.changes?`<ul class="diff">${E.changes.map(c=>`<li>${esc(c)}</li>`).join('')}</ul>`:''}
     <label>Or edit the script yourself</label>
     <div class="g3"><input data-k="title" value="${esc(p.title)}" placeholder="title"><input data-k="tagline" value="${esc(p.tagline)}" placeholder="tagline">
-      <select data-k="__cursor">${E.cursors.map(c=>`<option value="${c}" ${c===E.cursor?'selected':''}>Cursor: ${CUR[c]||c}</option>`).join('')}</select></div>
+      <select data-k="__cursor">${E.cursors.map(c=>`<option value="${c}" ${c===E.cursor?'selected':''}>Cursor: ${CUR[c]||c}</option>`).join('')}</select> <a class="hint" href="cursors" target="_blank" rel="noopener">see them</a></div>
     <div class="g3" style="grid-template-columns:1fr 1fr"><input data-k="problem.statement" value="${esc(p.problem.statement)}" placeholder="problem card: the pain, in a sentence (empty: no problem card)">
       <input data-k="problem.solution" value="${esc(p.problem.solution)}" placeholder="problem card: how this fixes it"></div>
     <textarea data-k="intro.narration" placeholder="intro narration">${esc(p.intro.narration)}</textarea>${scenes}
@@ -233,10 +237,10 @@ async function load(){let js;try{js=await api('api/jobs')}catch(e){return}
       <div class="btns">${j.status==='done'?`<button data-a="watch">Watch</button><a href="api/jobs/${j.id}/video" download><button>Download video</button></a>`
         +((j.files||[]).some(f=>f.kind==='package')?`<a href="api/jobs/${j.id}/files/${encodeURIComponent((j.files.find(f=>f.kind==='package')||{}).name||'')}" download><button>Download all (zip)</button></a>`:'')
         +((j.files||[]).length>1?'<button data-a="files">Files</button>':''):''}
-        ${live?'<button data-a="cancel">Cancel</button>':''}${['failed','cancelled'].includes(j.status)?'<button data-a="retry">Try again</button>':''}${['done','failed'].includes(j.status)?'<button data-a="change">Change</button>':''}${live?'':'<button data-a="remove">Remove</button>'}
+        ${live?'<button data-a="live">'+(OPEN[j.id]==='live'?'Hide live view':'Watch live')+'</button><button data-a="cancel">Cancel</button>':''}${['failed','cancelled'].includes(j.status)?'<button data-a="retry">Try again</button>':''}${['done','failed'].includes(j.status)?'<button data-a="change">Change</button>':''}${live?'':'<button data-a="remove">Remove</button>'}
         <button data-a="log">Log</button></div>
       ${OPEN[j.id]==='change'?`<div class="chgbox" data-id="${j.id}">${chgHtml(j.id)}</div>`:''}
-      ${OPEN[j.id]==='watch'?`<video controls src="api/jobs/${j.id}/video"></video>`:''}${OPEN[j.id]==='files'?files(j):''}${OPEN[j.id]==='log'?`<pre data-log="${j.id}">loading...</pre>`:''}</div>`}).join('');
+      ${OPEN[j.id]==='watch'?`<video controls src="api/jobs/${j.id}/video"></video>`:''}${OPEN[j.id]==='files'?files(j):''}${OPEN[j.id]==='log'?`<pre data-log="${j.id}">loading...</pre>`:''}${live&&OPEN[j.id]==='live'?`<div class="live"><img data-live="${j.id}" src="${LIVE[j.id]||''}" alt=""><span class="hint">${LIVE[j.id]?'':'waiting for the browser...'}</span></div>`:''}</div>`}).join('');
   document.querySelectorAll('pre[data-log]').forEach(async p=>{try{p.textContent=await (await fetch('api/jobs/'+p.dataset.log+'/log')).text()||'(empty)'}catch(e){}})}
 $('#jobs').addEventListener('input',e=>{const el=e.target,box=el.closest('.chgbox');if(!box)return;const E=EDIT[box.dataset.id];if(!E)return;
   if(el.classList.contains('ask')){E.ask=el.value;return}const k=el.dataset.k;if(!k)return;
@@ -248,8 +252,13 @@ $('#jobs').addEventListener('change',e=>{const el=e.target,box=el.closest('.chgb
 $('#jobs').onclick=async e=>{const cb=e.target.closest('.chgbox button[data-c]');if(cb){chgClick(cb);return}
   const b=e.target.closest('button[data-a]');if(!b)return;const id=b.closest('.job').dataset.id,a=b.dataset.a;
   if(a==='change'){if(OPEN[id]==='change'){delete EDIT[id];OPEN[id]=null;load()}else openChange(id).catch(err=>alert(err.message));return}
-  if(a==='watch'||a==='log'||a==='files'){OPEN[id]=OPEN[id]===a?null:a;load();return}
+  if(a==='watch'||a==='log'||a==='files'||a==='live'){OPEN[id]=OPEN[id]===a?null:a;load();return}
   if(a==='remove'&&!confirm('Remove this video from the queue and delete its files?'))return;
   b.disabled=true;try{await api(`api/jobs/${id}/${a}`,{method:'POST'})}catch(err){alert(err.message)}load()};
+// live view: the picture the job's browser shows now, refreshed every second while it is open (view only)
+const LIVE={};
+setInterval(()=>document.querySelectorAll('img[data-live]').forEach(async im=>{const id=im.dataset.live;
+  try{const r=await fetch('api/jobs/'+id+'/live.jpg',{cache:'no-store'});if(!r.ok)return;const u=URL.createObjectURL(await r.blob());
+    if(LIVE[id])URL.revokeObjectURL(LIVE[id]);LIVE[id]=u;im.src=u;const h=im.nextElementSibling;if(h)h.textContent=''}catch(e){}}),1000);
 srcDraw();info();load();setInterval(()=>{if(!Object.values(OPEN).some(v=>v==='watch'||v==='change'))load()},4000);   // not while a video plays or a script is open
 </script></body></html>"""
