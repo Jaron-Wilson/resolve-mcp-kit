@@ -220,8 +220,9 @@ python -m site_video make https://example.com --length 2min --notes "show pricin
 ```
 
 `--length` takes `5min`, `90s`, `1:30` or `auto`; `--notes` takes plain words or `auto`; `--editor` takes
-`auto` (Resolve if it is open, else ffmpeg), `resolve` or `ffmpeg`; `--music file.mp3` plays music under the voice,
-quieter while it speaks.
+`auto` (Resolve if it is open, else ffmpeg), `resolve` or `ffmpeg`; `--model` picks the model that writes the
+script for this video (default `SITE_VIDEO_LLM_MODEL`; the page lists the endpoint's models); `--music file.mp3`
+plays music under the voice, quieter while it speaks.
 
 ### A queue (several videos, 2 at a time)
 

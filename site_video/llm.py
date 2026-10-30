@@ -17,9 +17,28 @@ def settings():
             "key": os.environ.get("SITE_VIDEO_LLM_KEY", "")}
 
 
-def chat(system: str, user: str, max_tokens: int = 6000, timeout: int = 600) -> str:
+_models = {"at": 0.0, "ids": []}
+
+
+def models() -> list:
+    """The endpoint's model ids (GET /models), cached for 5 minutes; empty if it does not list them."""
+    import time
+    if time.time() - _models["at"] < 300:
+        return _models["ids"]
     s = settings()
-    body = {"model": s["model"], "max_tokens": max_tokens, "temperature": 0.4, "stream": False,
+    headers = {"Authorization": "Bearer " + s["key"]} if s["key"] else {}
+    try:
+        with urllib.request.urlopen(urllib.request.Request(s["url"] + "/models", headers=headers), timeout=10) as r:
+            ids = [m["id"] for m in json.load(r).get("data", []) if m.get("id")]
+    except Exception:
+        ids = []
+    _models.update(at=time.time(), ids=ids)
+    return ids
+
+
+def chat(system: str, user: str, max_tokens: int = 6000, timeout: int = 600, model: str = "") -> str:
+    s = settings()
+    body = {"model": model or s["model"], "max_tokens": max_tokens, "temperature": 0.4, "stream": False,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
     headers = {"Content-Type": "application/json"}
     if s["key"]:

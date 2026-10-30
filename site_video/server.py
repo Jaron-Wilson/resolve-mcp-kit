@@ -2,13 +2,13 @@
 
 GET  /                         the page: a form and the queue
 GET  /api/jobs                 every job, newest first
-POST /api/jobs                 {"url", "length", "notes", "voice", "editor", "name"} -> the new job
+POST /api/jobs                 {"url", "length", "notes", "voice", "editor", "name", "model"} -> the new job
 GET  /api/jobs/<id>            one job
 POST /api/jobs/<id>/cancel     stop it
 POST /api/jobs/<id>/retry      run a failed or cancelled job again (finished stages are kept)
 GET  /api/jobs/<id>/video      the finished MP4 (supports Range, so browsers can seek)
 GET  /api/jobs/<id>/log        the job's log
-GET  /api/info                 voices and editors this server offers
+GET  /api/info                 voices, script models and editors this server offers
 
 If SITE_VIDEO_TOKEN is set, every request needs "Authorization: Bearer <token>" (or ?token=<token> once in a browser,
 which sets a cookie).
@@ -35,8 +35,9 @@ def info() -> dict:
         voices.append("elevenlabs")
     if os.environ.get("SITE_VIDEO_ODYSSEUS_URL"):
         voices.append("odysseus")
-    from . import resolve_edit
+    from . import llm, resolve_edit
     return {"voices": voices, "default_voice": os.environ.get("SITE_VIDEO_DEFAULT_VOICE", voices[-1]),
+            "models": llm.models(), "default_model": llm.settings()["model"],
             "editors": list(pipeline.EDITORS), "resolve": resolve_edit.available(),
             "elevenlabs_voice": os.environ.get("SITE_VIDEO_ELEVENLABS_VOICE", ""),
             "openai_voice": os.environ.get("SITE_VIDEO_OPENAI_VOICE", "alloy")}
@@ -127,7 +128,8 @@ def make_handler(q: Queue):
                     b = self._body()
                     req = pipeline.request(str(b.get("url") or "").strip(), b.get("length") or "auto",
                                            b.get("notes") or "auto", b.get("voice") or "none",
-                                           b.get("editor") or "auto", "", str(b.get("name") or "")[:60])
+                                           b.get("editor") or "auto", "", str(b.get("name") or "")[:60],
+                                           str(b.get("model") or ""))
                     return self._send(201, q.submit(req))
                 jid = parts[2]
                 if len(parts) == 3 and method == "GET":

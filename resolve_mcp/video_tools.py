@@ -37,7 +37,7 @@ def _call(method: str, path: str, body=None):
 def _short(j: Dict[str, Any]) -> Dict[str, Any]:
     r = j.get("request") or {}
     out = {"id": j["id"], "status": j["status"], "step": j.get("step"), "progress": j.get("progress"),
-           "url": r.get("url"), "length": r.get("length"), "voice": r.get("voice")}
+           "url": r.get("url"), "length": r.get("length"), "voice": r.get("voice"), "model": r.get("model") or "default"}
     for k in ("error", "video", "editor", "seconds"):
         if j.get(k):
             out[k] = j[k]
@@ -49,16 +49,17 @@ def _short(j: Dict[str, Any]) -> Dict[str, Any]:
 def register(mcp):
     @mcp.tool()
     def make_site_video(url: str, length: str = "auto", notes: str = "auto", voice: str = "",
-                        editor: str = "auto", name: str = "") -> Dict[str, Any]:
+                        editor: str = "auto", name: str = "", model: str = "") -> Dict[str, Any]:
         """Queue a promo video of a website. It reads the site, writes a script, records the site in a browser,
         adds a voiceover, and edits and renders it in DaVinci Resolve (ffmpeg if Resolve is closed). Takes a few
         minutes; returns a job id at once, then check it with site_video_status.
 
         length: "5min", "90s", "1:30" or "auto". notes: what the video must do or show, in plain words ("show the
         pricing page, end on sign-up, upbeat"), or "auto". voice: "none", "openai[:voice]", "elevenlabs:<voice id>",
-        "odysseus", or "" for the queue's default. editor: "auto", "resolve" or "ffmpeg"."""
+        "odysseus", or "" for the queue's default. editor: "auto", "resolve" or "ffmpeg". model: the model that writes
+        the script (one of the queue's models, see /api/info), or "" for its default."""
         body = {"url": url, "length": length or "auto", "notes": notes or "auto", "editor": editor or "auto",
-                "name": name}
+                "name": name, "model": model or ""}
         if voice:
             body["voice"] = voice
         else:

@@ -57,11 +57,12 @@ def prompt(crawl: Dict, seconds: Optional[int], notes: Optional[str]) -> str:
     return f"{target}\n\n{want}\n\nReply in this shape:\n{SCHEMA}\n\nThe crawl:\n{_crawl_text(crawl)}"
 
 
-def make(crawl: Dict, seconds: Optional[int], notes: Optional[str], log=print) -> Dict:
+def make(crawl: Dict, seconds: Optional[int], notes: Optional[str], log=print, model: str = "") -> Dict:
     last = None
     for attempt in range(3):
         reply = llm.chat(SYSTEM, prompt(crawl, seconds, notes) + (
-            f"\n\nYour last reply could not be used ({last}). Reply with only valid JSON." if last else ""))
+            f"\n\nYour last reply could not be used ({last}). Reply with only valid JSON." if last else ""),
+            model=model)
         try:
             return check(llm.json_from(reply), crawl, seconds)
         except Exception as e:

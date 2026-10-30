@@ -10,7 +10,7 @@ main{max-width:1100px;margin:0 auto;padding:20px 16px 60px}h1{font-size:21px;mar
 label{display:block;font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em;margin:0 0 6px}
 input,select,textarea{font:inherit;color:var(--txt);background:#191c21;border:1px solid var(--line);border-radius:9px;padding:9px 11px;width:100%}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}textarea{resize:vertical;min-height:64px}
-.row{display:grid;grid-template-columns:2fr 1.6fr .9fr;gap:12px;margin-bottom:12px}.row2{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:12px}
+.row{display:grid;grid-template-columns:2fr 1.6fr .9fr;gap:12px;margin-bottom:12px}.row2{display:grid;grid-template-columns:1fr 1fr 1.3fr 1fr;gap:12px;margin-top:12px}
 @media(max-width:720px){.row,.row2{grid-template-columns:1fr}}
 .seg{display:flex;gap:4px}.seg button{flex:1;min-width:0;padding:9px 4px}
 button{font:inherit;font-size:13px;color:var(--txt);background:#262a30;border:1px solid var(--line);border-radius:8px;padding:7px 11px;cursor:pointer;white-space:nowrap}
@@ -40,6 +40,7 @@ pre{white-space:pre-wrap;font-size:12px;color:var(--dim);max-height:260px;overfl
   <div class="row2">
     <div><label for="voice">Voice</label><select id="voice"></select></div>
     <div><label for="vname">Voice name or id</label><input id="vname" placeholder="optional"></div>
+    <div><label for="model">Script model</label><input id="model" list="models" placeholder="default" autocomplete="off"><datalist id="models"></datalist></div>
     <div><label for="editor">Editor</label><select id="editor"><option value="auto">Auto (Resolve if it is open)</option><option value="resolve">DaVinci Resolve</option><option value="ffmpeg">Plain ffmpeg</option></select></div>
   </div>
   <div class="actions"><button class="pri" id="go">Make the video</button><span class="msg" id="msg"></span></div>
@@ -56,13 +57,17 @@ async function api(path,opt){const r=await fetch(path,opt);const t=await r.text(
 async function info(){try{INFO=await api('api/info')}catch(e){}
   const names={none:'No voice',openai:'OpenAI-compatible',elevenlabs:'ElevenLabs',odysseus:'Odysseus'};
   $('#voice').innerHTML=INFO.voices.map(v=>`<option value="${v}" ${v===INFO.default_voice?'selected':''}>${names[v]||v}</option>`).join('');
-  const sv=localStorage.getItem('svVoice');if(sv&&INFO.voices.includes(sv))$('#voice').value=sv;voiceHint()}
+  const sv=localStorage.getItem('svVoice');if(sv&&INFO.voices.includes(sv))$('#voice').value=sv;voiceHint();
+  $('#models').innerHTML=(INFO.models||[]).map(m=>`<option value="${esc(m)}">`).join('');
+  $('#model').placeholder='default'+(INFO.default_model?' ('+INFO.default_model+')':'');
+  $('#model').value=localStorage.getItem('svModel')||''}
+$('#model').onchange=()=>localStorage.setItem('svModel',$('#model').value.trim());
 function voiceHint(){const v=$('#voice').value;$('#vname').disabled=(v==='none'||v==='odysseus');
   $('#vname').placeholder=v==='elevenlabs'?(INFO.elevenlabs_voice||'voice id'):v==='openai'?(INFO.openai_voice||'alloy'):'not needed';}
 $('#voice').onchange=()=>{localStorage.setItem('svVoice',$('#voice').value);voiceHint()};
 $('#go').onclick=async()=>{const v=$('#voice').value,n=$('#vname').value.trim()||(v==='elevenlabs'?INFO.elevenlabs_voice:v==='openai'?INFO.openai_voice:'');
   const body={url:$('#url').value.trim(),length:$('#lenc').value.trim()||LEN,notes:$('#notes').value.trim()||'auto',
-    voice:(v==='elevenlabs'||v==='openai')&&n?v+':'+n:v,editor:$('#editor').value};
+    voice:(v==='elevenlabs'||v==='openai')&&n?v+':'+n:v,editor:$('#editor').value,model:$('#model').value.trim()};
   $('#go').disabled=true;$('#msg').className='msg';$('#msg').textContent='adding...';
   try{const j=await api('api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     $('#msg').textContent='Queued.';$('#url').value='';$('#notes').value='';load()}
@@ -75,7 +80,7 @@ async function load(){let js;try{js=await api('api/jobs')}catch(e){return}
   $('#jobs').innerHTML=js.map(j=>{const r=j.request||{},live=['preparing','waiting','editing','queued'].includes(j.status);
     const len=r.length==='auto'?'auto length':dur(r.length);
     return `<div class="job" data-id="${j.id}"><div class="top"><span class="pill ${j.status}">${j.status}</span><span class="u" title="${esc(r.url)}">${esc(r.url)}</span><span class="meta" style="margin:0">${ago(j.created)}</span></div>
-      <div class="meta">${esc(len)} &middot; voice ${esc(r.voice)} &middot; ${r.notes&&r.notes!=='auto'?'&ldquo;'+esc(r.notes.slice(0,140))+'&rdquo;':'auto'}${j.status==='done'?' &middot; '+dur(j.seconds)+' made with '+esc(j.editor):''}${live?' &middot; '+esc(j.step||''):''}</div>
+      <div class="meta">${esc(len)} &middot; voice ${esc(r.voice)}${r.model?' &middot; model '+esc(r.model):''} &middot;${r.notes&&r.notes!=='auto'?'&ldquo;'+esc(r.notes.slice(0,140))+'&rdquo;':'auto'}${j.status==='done'?' &middot; '+dur(j.seconds)+' made with '+esc(j.editor):''}${live?' &middot; '+esc(j.step||''):''}</div>
       ${live?`<div class="bar"><i style="width:${Math.round((j.progress||0)*100)}%"></i></div>`:''}
       ${j.error?`<div class="err">${esc(j.error)}</div>`:''}
       <div class="btns">${j.status==='done'?`<button data-a="watch">Watch</button><a href="api/jobs/${j.id}/video" download><button>Download</button></a>`:''}

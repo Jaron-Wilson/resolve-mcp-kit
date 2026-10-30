@@ -37,7 +37,8 @@ TOOLS = [
             "length": {"type": "string", "description": "e.g. 5min, 90s, 1:30, or auto (default)"},
             "notes": {"type": "string", "description": "What the video must do or show, in the user's words; auto if nothing"},
             "voice": {"type": "string", "description": "none, odysseus, openai[:voice], elevenlabs:<voice id>; leave out for the default"},
-            "editor": {"type": "string", "enum": ["auto", "resolve", "ffmpeg"]}},
+            "editor": {"type": "string", "enum": ["auto", "resolve", "ffmpeg"]},
+            "model": {"type": "string", "description": "The model that writes the script, if the user named one; leave out for the default"}},
             "required": ["url"]}},
      "x-odysseus": {"keywords": ["video", "promo", "walkthrough"], "read_only": False}},
     {"type": "function", "function": {
@@ -111,7 +112,7 @@ def _job_text(j, base):
     line = f"Job {j['id']}: {j['status']}"
     if j["status"] in ("queued", "preparing", "waiting", "editing"):
         line += f" ({j.get('step')}, {int((j.get('progress') or 0) * 100)}%)"
-    line += f". {r.get('url')}, length {r.get('length')}, voice {r.get('voice')}"
+    line += f". {r.get('url')}, length {r.get('length')}, voice {r.get('voice')}, script model {r.get('model') or 'default'}"
     if r.get("notes") and r["notes"] != "auto":
         line += f", notes: {r['notes'][:200]}"
     if j.get("error"):
@@ -126,7 +127,8 @@ def tool(name, args):
     base = os.environ.get("ODYSSEUS_MOD_BASE", f"/mods/{MOD_ID}")
     if name == "make_site_video":
         body = {"url": str(args.get("url") or "").strip(), "length": args.get("length") or "auto",
-                "notes": args.get("notes") or "auto", "editor": args.get("editor") or "auto"}
+                "notes": args.get("notes") or "auto", "editor": args.get("editor") or "auto",
+                "model": args.get("model") or ""}
         body["voice"] = args.get("voice") or BACKEND.json("GET", "/api/info").get("default_voice", "none")
         j = BACKEND.json("POST", "/api/jobs", body)
         return {"output": _job_text(j, base) + " It takes a few minutes; check it with site_video_status.", "data": j}

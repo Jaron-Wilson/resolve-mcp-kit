@@ -79,6 +79,33 @@ def test_requests_are_checked():
             pipeline.request(**bad)
 
 
+def test_a_video_can_name_the_model_that_writes_its_script(monkeypatch):
+    from site_video import llm
+    assert pipeline.request("https://ex.com", model=" gemma4:26b ")["model"] == "gemma4:26b"
+    assert pipeline.request("https://ex.com")["model"] == ""
+    with pytest.raises(ValueError):
+        pipeline.request("https://ex.com", model="two words")
+    sent = []
+
+    class Reply:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return json.dumps({"choices": [{"message": {"content": "<think>x</think>ok"}}]}).encode()
+
+    def fake_open(req, timeout=0):
+        sent.append(json.loads(req.data)["model"])
+        return Reply()
+    monkeypatch.setattr(llm.urllib.request, "urlopen", fake_open)
+    monkeypatch.setenv("SITE_VIDEO_LLM_MODEL", "qwen3:8b")
+    assert llm.chat("s", "u", model="gemma4:26b") == "ok" and llm.chat("s", "u") == "ok"
+    assert sent == ["gemma4:26b", "qwen3:8b"]
+
+
 def test_the_queue_runs_stages_and_keeps_state(tmp_path, monkeypatch):
     q = Queue(str(tmp_path), parallel=2)
     calls = []

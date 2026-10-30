@@ -1,7 +1,7 @@
 """site-video: make a promo video of a website.
 
   site-video make URL [--length 5min|90s|auto] [--notes "show pricing"|auto] [--voice none|openai:alloy|elevenlabs:ID|odysseus]
-                      [--editor auto|resolve|ffmpeg] [--music track.mp3] [--name NAME] [--out DIR]
+                      [--editor auto|resolve|ffmpeg] [--model qwen3:8b] [--music track.mp3] [--name NAME] [--out DIR]
   site-video serve [--host 127.0.0.1] [--port 8940] [--parallel 2] [--home DIR]
   site-video add URL [same options as make] [--server http://host:8940]
   site-video list | status ID | cancel ID | retry ID | get ID [-o file.mp4]     [--server ...]
@@ -59,6 +59,7 @@ def main(argv=None):
         p.add_argument("--voice", default=os.environ.get("SITE_VIDEO_DEFAULT_VOICE", "none"),
                        help="none, openai[:voice], elevenlabs:<voice id>, odysseus")
         p.add_argument("--editor", default="auto", choices=["auto", "resolve", "ffmpeg"])
+        p.add_argument("--model", default="", help="the model that writes the script (default SITE_VIDEO_LLM_MODEL)")
         p.add_argument("--name", default="")
 
     p = sub.add_parser("make", help="make one video now, in this terminal")
@@ -97,7 +98,7 @@ def main(argv=None):
     if a.cmd == "make":
         from . import pipeline
         try:
-            req = pipeline.request(a.url, a.length, a.notes, a.voice, a.editor, a.music, a.name)
+            req = pipeline.request(a.url, a.length, a.notes, a.voice, a.editor, a.music, a.name, a.model)
         except ValueError as e:
             sys.exit(f"error: {e}")
         out = a.out or os.path.join(DEFAULT_HOME, "jobs", time.strftime("%Y%m%d-%H%M%S-cli"))
@@ -110,7 +111,7 @@ def main(argv=None):
         return
     if a.cmd == "add":
         j = _http(a.server, "POST", "/api/jobs", {"url": a.url, "length": a.length, "notes": a.notes, "voice": a.voice,
-                                                    "editor": a.editor, "name": a.name})
+                                                    "editor": a.editor, "name": a.name, "model": a.model})
         _show(j)
         while a.wait and j["status"] not in ("done", "failed", "cancelled"):
             time.sleep(5)

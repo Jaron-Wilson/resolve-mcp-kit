@@ -15,7 +15,7 @@ EDITORS = ("auto", "resolve", "ffmpeg")
 
 
 def request(url: str, length="auto", notes="auto", voice_spec="none", editor="auto", music: str = "",
-            name: str = "") -> Dict:
+            name: str = "", model: str = "") -> Dict:
     """A checked job request (raises ValueError with a readable reason)."""
     if not re.match(r"^https?://", url or ""):
         raise ValueError("the link must start with http:// or https://")
@@ -25,8 +25,11 @@ def request(url: str, length="auto", notes="auto", voice_spec="none", editor="au
         raise ValueError(f"editor must be one of {', '.join(EDITORS)}")
     if music and not os.path.isfile(music):
         raise ValueError(f"music file not found: {music}")
+    model = str(model or "").strip()
+    if len(model) > 120 or any(ch.isspace() for ch in model):
+        raise ValueError("model: one model id, like qwen3:8b")
     return {"url": url, "length": "auto" if seconds is None else seconds, "notes": "auto" if is_auto(notes) else notes,
-            "voice": voice_spec or "none", "editor": editor, "music": music or "", "name": name or ""}
+            "voice": voice_spec or "none", "editor": editor, "music": music or "", "name": name or "", "model": model}
 
 
 def _name(job_dir: str, plan: Dict, req: Dict) -> str:
@@ -48,7 +51,9 @@ def prep(job_dir: str, req: Dict, step: Callable[[str, float], None] = lambda s,
     pl = read_json(os.path.join(job_dir, "plan.json"))
     if not pl:
         step("writing the script", 0.1)
-        pl = planner.make(cr, seconds, req["notes"], log)
+        if req.get("model"):
+            log(f"script model: {req['model']}")
+        pl = planner.make(cr, seconds, req["notes"], log, model=req.get("model") or "")
         write_json(os.path.join(job_dir, "plan.json"), pl)
         log("plan: " + planner.summary(pl))
 
