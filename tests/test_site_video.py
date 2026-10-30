@@ -19,6 +19,32 @@ def test_lengths(text, secs):
     assert parse_length(text) == secs
 
 
+def test_steps_are_read_however_the_model_writes_them_and_no_scene_stands_still():
+    raw = {"scenes": [{"url": "https://ex.com/", "narration": "", "seconds": 8,
+                       "actions": [{"action": "hover", "text": "Pricing"}, {"type": "scroll", "to": "Pricing"},
+                                   "click on Sign up", {"do": "type", "into": "Search", "text": "cats"},
+                                   {"do": "hover"}, "dance wildly"]},
+                      {"url": "https://ex.com/", "narration": "", "seconds": 8, "actions": []},
+                      {"url": "https://ex.com/", "narration": "", "seconds": 8}]}
+    a, b, c = plan.check(raw, CRAWL, None)["scenes"]
+    assert [x["do"] for x in a["actions"]] == ["hover", "scroll", "click", "type"]
+    assert a["actions"][2]["text"] == "Sign up" and a["actions"][3]["into"] == "Search"
+    assert b["actions"] == [{"do": "scroll", "to": 0.6}] and c["actions"] == [{"do": "scroll", "to": 0.9}]
+
+
+def test_anchored_urls_are_kept_and_steps_must_point_at_what_is_on_that_page():
+    crawl = {"pages": [dict(CRAWL["pages"][0], inputs=["Search cards"]), CRAWL["pages"][1]]}
+    raw = {"scenes": [{"url": "https://ex.com/docs#intro", "narration": "", "seconds": 8,
+                       "actions": [{"do": "click", "text": "Sign up"}]},
+                      {"url": "https://ex.com/", "narration": "", "seconds": 8,
+                       "actions": [{"do": "type", "into": "Search placeholder", "text": "Charizard"},
+                                   {"do": "type", "into": "search cards", "text": "Pikachu"},
+                                   {"do": "hover", "text": "Made up"}, {"do": "scroll", "to": "pricing"}]}]}
+    a, b = plan.check(raw, crawl, None)["scenes"]
+    assert a["url"] == "https://ex.com/docs" and a["actions"] == [{"do": "scroll", "to": 0.3}]
+    assert [(x["do"], x.get("text") or x.get("to")) for x in b["actions"]] == [("type", "Pikachu"), ("scroll", "pricing")]
+
+
 @pytest.mark.parametrize("bad", ["5 hours", "abc", "3s", "45min"])
 def test_bad_lengths(bad):
     with pytest.raises(ValueError):
@@ -48,7 +74,7 @@ def test_a_target_length_stretches_scenes_but_never_below_the_narration():
     raw = {"scenes": [{"url": "https://ex.com/", "narration": "", "seconds": 5},
                       {"url": "https://ex.com/", "narration": "word " * 24, "seconds": 11}]}
     p = plan.check(raw, CRAWL, 60)
-    assert abs(sum(s["seconds"] for s in p["scenes"]) + 10 - 60) < 6
+    assert abs(sum(s["seconds"] for s in p["scenes"]) + 15 - 60) < 6
     assert p["scenes"][1]["seconds"] >= 24 / plan.WORDS_PER_SECOND
 
 
@@ -195,7 +221,7 @@ def test_the_script_reads_like_a_script():
     from site_video import deliver
     md = deliver.script_md(PLAN, [4.0, 9.5, 5.0])
     assert "## 1. Pricing (0:04, 9.5 s)" in md and "On screen: scroll Pricing; pause 1 s" in md
-    assert "It costs little." in md and "Call to action: Sign up" in md and "Total: 0:18" in md
+    assert "It costs little." in md and "On the card: Sign up" in md and "Total: 0:18" in md
 
 
 def test_deliverables_are_gathered_and_zipped(tmp_path):

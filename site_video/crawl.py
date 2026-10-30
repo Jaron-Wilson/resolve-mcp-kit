@@ -20,10 +20,13 @@ _EXTRACT = r"""() => {
   const buttons = [...document.querySelectorAll('a,button,[role=button]')].filter(vis).map(txt)
     .filter(t => t && t.length < 40);
   const links = [...document.querySelectorAll('a[href]')].map(a => ({ href: a.href, text: txt(a).slice(0, 60) }));
+  const inputs = [...document.querySelectorAll('input[type=search],input[type=text],input:not([type]),textarea')].filter(vis)
+    .map(el => (el.getAttribute('placeholder') || el.getAttribute('aria-label') || el.getAttribute('name') || '').trim())
+    .filter(Boolean);
   const meta = n => (document.querySelector(`meta[name="${n}"],meta[property="${n}"]`) || {}).content || '';
   return { title: document.title, description: meta('description') || meta('og:description'),
     site_name: meta('og:site_name'), height: H, headings: heads.slice(0, 40),
-    buttons: [...new Set(buttons)].slice(0, 40), links,
+    buttons: [...new Set(buttons)].slice(0, 40), links, inputs: [...new Set(inputs)].slice(0, 8),
     text: txt(document.body).slice(0, 2500) };
 }"""
 
@@ -56,8 +59,12 @@ def _same_site(a: str, b: str) -> bool:
     return ha.removeprefix("www.") == hb.removeprefix("www.")
 
 
-def crawl(start: str, max_pages: int = 6, log=print) -> Dict:
-    """{"start", "pages": [{url, title, description, headings, buttons, text, height}]}."""
+def crawl(start: str, max_pages: int = 6, log=print, brand_dir: str = "") -> Dict:
+    """{"start", "brand", "pages": [{url, title, description, headings, buttons, inputs, text, height}]}. The brand
+    (colors, font, logo) is read from the start page; its logo goes to <brand_dir>/logo.png."""
+    import os
+    from . import brand as branding
+    found = None
     from playwright.sync_api import sync_playwright
     pages: List[Dict] = []
     with sync_playwright() as p:
@@ -81,7 +88,9 @@ def crawl(start: str, max_pages: int = 6, log=print) -> Dict:
             links = info.pop("links")
             pages.append(info)
             log(f"read {page.url} ({len(info['headings'])} headings)")
-            if len(pages) == 1:      # follow the start page's own links: its nav is the site's outline
+            if len(pages) == 1:
+                found = branding.extract(page, os.path.join(brand_dir, "logo.png") if brand_dir else "", log)
+                # follow the start page's own links: its nav is the site's outline
                 for ln in links:
                     href = urljoin(page.url, ln["href"]).split("#")[0]
                     if href.startswith("http") and _same_site(href, start) and not href.lower().endswith(
@@ -90,7 +99,7 @@ def crawl(start: str, max_pages: int = 6, log=print) -> Dict:
         browser.close()
     if not pages:
         raise RuntimeError(f"could not open {start}")
-    return {"start": start, "pages": pages}
+    return {"start": start, "pages": pages, "brand": found}
 
 
 def pages_for(seconds) -> int:

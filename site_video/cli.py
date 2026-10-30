@@ -96,7 +96,7 @@ def main(argv=None):
         p.add_argument("--deliver", default="video",
                        help="comma list: video, script, voiceover, clips, timeline, resolve_project, package, or all")
         p.add_argument("--name", default="")
-        p.add_argument("--cursor", default="arrow", choices=["arrow", "hand", "ring", "none"],
+        p.add_argument("--cursor", default="dot", choices=["dot", "arrow", "hand", "ring", "none"],
                        help="the cursor on website scenes (ring: arrow with a highlight and a ripple on clicks)")
 
     p = sub.add_parser("make", help="make one video now, in this terminal")
@@ -122,7 +122,7 @@ def main(argv=None):
     p = sub.add_parser("change", help="change a finished video in words, then make it again (only what changed)")
     p.add_argument("id")
     p.add_argument("change")
-    p.add_argument("--cursor", default="", choices=["", "arrow", "hand", "ring", "none"])
+    p.add_argument("--cursor", default="", choices=["", "dot", "arrow", "hand", "ring", "none"])
     p.add_argument("--dry-run", action="store_true", help="only show what would change")
     p.add_argument("--server", default=DEFAULT_SERVER)
     sub.add_parser("odysseus-mod", help="run as an Odysseus mod (started by Odysseus)")

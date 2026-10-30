@@ -44,7 +44,7 @@ TOOLS = [
             "notes": {"type": "string", "description": "What the video must do or show, in the user's words; auto if nothing"},
             "voice": {"type": "string", "description": "none, odysseus, openai[:voice], elevenlabs:<voice id>; leave out for the default"},
             "editor": {"type": "string", "enum": ["auto", "resolve", "ffmpeg"]},
-            "cursor": {"type": "string", "enum": ["arrow", "hand", "ring", "none"], "description": "The cursor drawn on website scenes: arrow (default), hand, ring (arrow with a highlight and a ripple on clicks), none"},
+            "cursor": {"type": "string", "enum": ["dot", "arrow", "hand", "ring", "none"], "description": "The cursor drawn on website scenes: dot (default, a soft dot in the site's color), arrow, hand, ring (arrow with a highlight and a ripple on clicks), none"},
             "model": {"type": "string", "description": "The model that writes the script, if the user named one; leave out for the default"},
             "deliverables": {"type": "array", "items": {"type": "string", "enum": ["video", "script", "voiceover", "clips", "timeline", "resolve_project", "package"]},
                              "description": "What to hand back besides the video, if the user asked: script, voiceover files, clips, the timeline (.drt/.fcpxml/.edl), the Resolve project (.drp), or package (all of it zipped)"}}}},
@@ -58,7 +58,7 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {
             "job_id": {"type": "string"},
             "change": {"type": "string", "description": "The change, in the user's words"},
-            "cursor": {"type": "string", "enum": ["arrow", "hand", "ring", "none"], "description": "Only if they asked for a different cursor"}},
+            "cursor": {"type": "string", "enum": ["dot", "arrow", "hand", "ring", "none"], "description": "Only if they asked for a different cursor"}},
             "required": ["job_id", "change"]}},
      "x-odysseus": {"keywords": ["video", "change", "edit"], "read_only": False}},
     {"type": "function", "function": {
@@ -164,7 +164,7 @@ def tool(name, args):
     base = os.environ.get("ODYSSEUS_MOD_BASE", f"/mods/{MOD_ID}")
     if name == "make_site_video":
         body = {"url": str(args.get("url") or "").strip(), "media": args.get("videos") or [],
-                "cursor": args.get("cursor") or "arrow",
+                "cursor": args.get("cursor") or "dot",
                 "length": args.get("length") or "auto",
                 "notes": args.get("notes") or "auto", "editor": args.get("editor") or "auto",
                 "model": args.get("model") or "", "deliverables": args.get("deliverables") or ["video"]}

@@ -55,7 +55,7 @@ def register(mcp):
     def make_site_video(url: str = "", length: str = "auto", notes: str = "auto", voice: str = "",
                         editor: str = "auto", name: str = "", model: str = "",
                         deliverables: List[str] = (), videos: List[Dict[str, str]] = (),
-                        cursor: str = "arrow") -> Dict[str, Any]:
+                        cursor: str = "dot") -> Dict[str, Any]:
         """Queue a promo video of a website, of the user's own videos, or of both. It reads the site, watches the
         videos, writes a script, records the site in a browser, adds a voiceover, and edits and renders it in DaVinci
         Resolve (ffmpeg if Resolve is closed). Takes a few minutes; returns a job id at once, then check it with
@@ -71,7 +71,7 @@ def register(mcp):
         the script (one of the queue's models, see /api/info), or "" for its default. deliverables: what to hand
         back besides the video: script, voiceover, clips, timeline (.drt/.fcpxml/.edl), resolve_project (.drp),
         package (all of it zipped)."""
-        body = {"url": url or "", "media": list(videos or []), "cursor": cursor or "arrow", "length": length or "auto", "notes": notes or "auto", "editor": editor or "auto",
+        body = {"url": url or "", "media": list(videos or []), "cursor": cursor or "dot", "length": length or "auto", "notes": notes or "auto", "editor": editor or "auto",
                 "name": name, "model": model or "", "deliverables": list(deliverables) or ["video"]}
         if voice:
             body["voice"] = voice

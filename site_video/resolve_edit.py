@@ -1,6 +1,7 @@
-"""The Resolve edit: each video becomes its own project in a "Site videos" project folder, with a timeline (a marker
-and the caption at every scene, so it can be polished by hand later), then a render, and on request the timeline
-(.drt/.fcpxml/.edl) and the project (.drp) exported.
+"""The Resolve edit: each video becomes its own project in a "Site videos" project folder, with a timeline laid out
+like the hand-made promos (V1 "Picture": the cards and scenes with a dissolve centered on each cut; V2 "Captions": the
+caption images with short fades; A1 the soundtrack), so it can be polished by hand later, then a render, and on
+request the timeline (.drt/.fcpxml/.edl) and the project (.drp) exported.
 
 Runs on the computer with Resolve (its scripting only attaches locally). The project that was open is saved first and
 opened again afterwards, in its own folder.
@@ -12,7 +13,7 @@ from typing import Dict, List
 
 from resolve_mcp import connection as c
 
-from .util import FPS, HEIGHT, WIDTH
+from .util import DISSOLVE, FPS, HANDLE, HEIGHT, WIDTH, frames
 
 # each video is its own project, in this project folder, so a project export holds only that video
 FOLDER = os.environ.get("SITE_VIDEO_RESOLVE_FOLDER", "Site videos")
@@ -132,8 +133,8 @@ def _export_timeline(resolve, tl, out_dir: str, name: str, log) -> List[str]:
     return done
 
 
-def edit(work: str, name: str, clips: List[str], mix: str, captions: List[str], out_dir: str, log=print,
-         exports=()) -> Dict:
+def edit(work: str, name: str, clips: List[str], mix: str, secs: List[float], captions: List[Dict], out_dir: str,
+         log=print, exports=()) -> Dict:
     """Build and render the video in its own project, in the FOLDER project folder. `exports` may hold "timeline"
     and "project": the timeline as .drt/.fcpxml/.edl and the project as .drp, written to out_dir.
     {"video": path, "timeline": [paths], "project": path or None}"""
@@ -171,14 +172,16 @@ def edit(work: str, name: str, clips: List[str], mix: str, captions: List[str], 
         mp = p.GetMediaPool()
         root = mp.GetRootFolder()
         mp.SetCurrentFolder(mp.AddSubFolder(root, "media") or root)
-        items = mp.ImportMedia([os.path.abspath(x) for x in clips + [mix]]) or []
+        pngs = list(dict.fromkeys(cap["png"] for cap in captions))
+        files = [os.path.abspath(x) for x in clips + [mix] + pngs]
+        items = mp.ImportMedia(files) or []
         by_path = {}
         for it in items:
             by_path[os.path.normcase(os.path.abspath(it.GetClipProperty("File Path") or ""))] = it
-        need = [os.path.normcase(os.path.abspath(x)) for x in clips + [mix]]
-        missing = [x for x in need if x not in by_path]
+        missing = [x for x in files if os.path.normcase(x) not in by_path]
         if missing:
             raise RuntimeError(f"Resolve did not import {len(missing)} file(s), e.g. {missing[0]}")
+        item = lambda path: by_path[os.path.normcase(os.path.abspath(path))]
         tl_name = name if not p.GetTimelineCount() else f"{name} {time.strftime('%H%M%S')}"     # a retry adds one
         tl = mp.CreateEmptyTimeline(tl_name)
         if not tl:
@@ -187,17 +190,57 @@ def edit(work: str, name: str, clips: List[str], mix: str, captions: List[str], 
         if p.GetSetting("timelineFrameRate") not in (str(FPS), f"{FPS}.0"):
             tl.SetSetting("useCustomSettings", "1")       # a project with media keeps its frame rate; the timeline can differ
             _set_format(tl)
+        while (tl.GetTrackCount("video") or 0) < 2:
+            tl.AddTrack("video")
+        tl.SetTrackName("video", 1, "Picture")
+        tl.SetTrackName("video", 2, "Captions")
+        tl.SetTrackName("audio", 1, "Soundtrack")
         start = tl.GetStartFrame()
-        vids = mp.AppendToTimeline([{"mediaPoolItem": by_path[x], "trackIndex": 1, "mediaType": 1} for x in need[:-1]]) or []
+
+        # V1: each clip without its handles; the handles are what the centered dissolves overlap into
+        n = [frames(d) for d in secs]
+        vids = mp.AppendToTimeline([{"mediaPoolItem": item(x), "startFrame": HANDLE, "endFrame": HANDLE + k,
+                                     "trackIndex": 1, "mediaType": 1} for x, k in zip(clips, n)]) or []
         if len(vids) != len(clips):
             raise RuntimeError(f"only {len(vids)} of {len(clips)} clips went onto the timeline")
-        aud = mp.AppendToTimeline([{"mediaPoolItem": by_path[need[-1]], "trackIndex": 1, "mediaType": 2,
+        for x, k, v in zip(clips, n, vids):
+            if int(v.GetDuration()) != k:
+                log(f"  {os.path.basename(x)}: {int(v.GetDuration())} frames on the timeline, {k} planned")
+        fades = sum(bool(v.AddTransition({"type": "Cross Dissolve", "category": "simple", "position": "end",
+                                          "alignment": "center", "duration": DISSOLVE})) for v in vids[:-1])
+        fades += bool(vids[-1].AddTransition({"type": "Cross Dissolve", "category": "simple", "position": "end",
+                                              "alignment": "left", "duration": 24}))
+        if fades < len(vids):
+            log(f"  Resolve took {fades} of {len(vids)} transitions")
+        aud = mp.AppendToTimeline([{"mediaPoolItem": item(mix), "trackIndex": 1, "mediaType": 2,
                                     "recordFrame": start}]) or []
         if not aud:
             raise RuntimeError("the soundtrack did not go onto the timeline")
-        for item, cap in zip(vids[1:-1], captions):
-            tl.AddMarker(item.GetStart() - start, "Blue", cap[:60] or "scene", "", 1)
-        log(f"project {name!r}, timeline {tl_name!r}: {len(vids)} clips, soundtrack, {len(captions)} markers")
+
+        # V2: captions are stills; Resolve honors a still's mark in/out (not startFrame/endFrame) for its length
+        placed = 0
+        for cap in captions:
+            still, want = item(cap["png"]), frames(cap["end"] - cap["start"])
+            end = want - 1
+            for _ in range(3):
+                still.SetMarkInOut(0, end)
+                got = mp.AppendToTimeline([{"mediaPoolItem": still, "trackIndex": 2,
+                                            "recordFrame": start + frames(cap["start"])}]) or []
+                still.ClearMarkInOut()
+                if not got:
+                    break
+                d = int(got[0].GetDuration())
+                if d == want:
+                    placed += 1
+                    for pos, align in (("start", "right"), ("end", "left")):
+                        got[0].AddTransition({"type": "Cross Dissolve", "category": "simple", "position": pos,
+                                              "alignment": align, "duration": 8})
+                    break
+                tl.DeleteClips([got[0]])
+                end += want - d
+        if placed < len(captions):
+            log(f"  {len(captions) - placed} caption(s) did not go onto the timeline")
+        log(f"project {name!r}, timeline {tl_name!r}: {len(vids)} clips with dissolves, {placed} captions, soundtrack")
         pm.SaveProject()
 
         if p.IsRenderingInProgress():

@@ -10,17 +10,18 @@ import os
 import re
 from typing import Callable, Dict, List, Optional
 
-from . import assemble, crawl, deliver, media as footage, plan as planner, voice
+from . import assemble, brand, cards, crawl, deliver, media as footage, plan as planner, voice
 from .record import VERSION as REC_VERSION
 from .util import Log, is_auto, parse_length, read_json, write_json
 
 EDITORS = ("auto", "resolve", "ffmpeg")
 MAX_MEDIA = 12
-CURSORS = ("arrow", "hand", "ring", "none")     # the cursor drawn on website scenes (record.py)
+CURSORS = ("dot", "arrow", "hand", "ring", "none")    # the cursor drawn on website scenes (record.py)
+CARDS_VERSION = 1     # bump when the cards or captions would be drawn differently
 
 
 def _cursor(c) -> str:
-    c = str(c or "arrow").strip().lower()
+    c = str(c or "dot").strip().lower()
     if c not in CURSORS:
         raise ValueError(f"cursor must be one of {', '.join(CURSORS)}")
     return c
@@ -45,7 +46,7 @@ def media_list(items) -> List[Dict]:
 
 
 def request(url: str, length="auto", notes="auto", voice_spec="none", editor="auto", music: str = "",
-            name: str = "", model: str = "", deliverables="video", media=None, cursor: str = "arrow") -> Dict:
+            name: str = "", model: str = "", deliverables="video", media=None, cursor: str = "dot") -> Dict:
     """A checked job request (raises ValueError with a readable reason). A website link, the owner's videos
     (`media`), or both: with both, website scenes fill the length around the videos."""
     media = media_list(media)
@@ -81,7 +82,7 @@ def prep(job_dir: str, req: Dict, step: Callable[[str, float], None] = lambda s,
     cr = read_json(os.path.join(job_dir, "crawl.json")) if req.get("url") else None
     if req.get("url") and not cr:
         step("reading the site", 0.02)
-        cr = crawl.crawl(req["url"], crawl.pages_for(seconds), log)
+        cr = crawl.crawl(req["url"], crawl.pages_for(seconds), log, brand_dir=job_dir)
         write_json(os.path.join(job_dir, "crawl.json"), cr)
 
     vids = req.get("media") or []
@@ -127,53 +128,65 @@ def prep(job_dir: str, req: Dict, step: Callable[[str, float], None] = lambda s,
 
     cdir = os.path.join(job_dir, "clips")
     os.makedirs(cdir, exist_ok=True)
-    cursor = req.get("cursor") or "arrow"
-    hero = os.path.join(cdir, "hero.png")
+    cursor = req.get("cursor") or "dot"
+    look = dict(brand.DEFAULT, **((cr or {}).get("brand") or {}))
+    title_s = secs[0] * assemble.TITLE_S / (assemble.TITLE_S + assemble.PROBLEM_S) if assemble.opening(pl) else 0
     # each segment's file is named by everything that shapes it, so a revised plan reuses what did not change
-    keys = [_key("card", pl["title"], pl.get("tagline", ""), secs[0])]
-    keys += [_key(s, secs[i + 1], "" if "video" in s else (cursor, REC_VERSION)) for i, s in enumerate(pl["scenes"])]
-    keys.append(_key("end", pl["outro"].get("call_to_action"), pl["url"], pl["title"], secs[-1]))
+    keys = [_key("open", pl["title"], pl.get("tagline", ""), pl.get("problem"), look, secs[0], CARDS_VERSION)]
+    shot = lambda s: {k: v for k, v in s.items() if k not in ("caption", "captions", "narration")}   # the picture alone
+    keys += [_key(shot(s), secs[i + 1], "" if "video" in s else (cursor, look["primary"], look.get("zoom", 1.0), REC_VERSION))
+             for i, s in enumerate(pl["scenes"])]
+    keys.append(_key("close", pl["outro"].get("call_to_action"), pl["outro"].get("small"), pl["url"], look, secs[-1],
+                     CARDS_VERSION))
     clips = [os.path.join(cdir, f"seg_{i:03d}_{k}.mp4") for i, k in enumerate(keys)]
     own = [None] * len(secs)                # the sound of the owner's video shown in a segment
     for i, s in enumerate(pl["scenes"]):
         if "video" in s and has_sound.get(s["video"]):
             own[i + 1] = clips[i + 1][:-4] + "_own.wav"
+    caps = assemble.caption_times(pl, secs)
+    for c in caps:
+        c["png"] = os.path.join(cdir, f"cap_{_key(c['text'], look, CARDS_VERSION)}.png")
     done = lambda i: os.path.exists(clips[i]) and (not own[i] or os.path.exists(own[i]))
     todo = [i for i in range(len(clips)) if not done(i)]
-    if todo:
+    if todo or not all(os.path.exists(c["png"]) for c in caps):
         if len(todo) < len(clips):
             log(f"redoing {len(todo)} of {len(clips)} segments; the rest are unchanged")
         from .record import Recorder
-        rec = Recorder(cdir, log, cursor)
+        rec = Recorder(cdir, log, cursor, look["primary"], look.get("zoom", 1.0))
         try:
-            if not os.path.exists(hero):
-                if req.get("url"):
-                    rec.hero(req["url"], hero)
-                else:                       # no website: a frame of the first video behind the title cards
-                    first = next(s for s in pl["scenes"] if "video" in s)
-                    footage.frame_png(source[first["video"]], (first["from"] + first["to"]) / 2, hero)
+            paint = cards.painter(rec.browser, req.get("url") or "", look, job_dir, log)
             for n, i in enumerate(x for x in todo if 0 < x < len(clips) - 1):
                 s = pl["scenes"][i - 1]
                 step(f"{'cutting' if 'video' in s else 'recording'} scene {i}/{len(pl['scenes'])}",
                      0.35 + 0.45 * n / len(todo))
                 if "video" in s:
-                    cap = ""
-                    if s["caption"]:
-                        cap = clips[i][:-4] + "_cap.png"
-                        rec.caption_png(s["caption"], cap)
-                    footage.cut(source[s["video"]], s["from"], secs[i], clips[i], own[i] or "", cap)
+                    footage.cut(source[s["video"]], s["from"], secs[i], clips[i], own[i] or "")
                 else:
-                    rec.scene(s, secs[i], clips[i])
+                    speed = rec.scene(s, secs[i], clips[i])
+                    if speed >= 2.39:
+                        log(f"  scene {i} has more going on than its {secs[i]:.1f} s; give it more time or fewer steps")
+            step("drawing the cards and captions", 0.8)
             if not os.path.exists(clips[0]):
-                rec.card("", pl["title"], pl.get("tagline", ""), hero, secs[0], clips[0])
+                pngs = [paint.title(pl["title"], pl.get("tagline", ""), clips[0][:-4] + "_title.png")]
+                if assemble.opening(pl):
+                    pngs.append(paint.problem(pl["problem"]["statement"], pl["problem"].get("solution", ""),
+                                              clips[0][:-4] + "_problem.png"))
+                cards.card_clip(pngs, secs[0], clips[0], title_s)
             if not os.path.exists(clips[-1]):
-                rec.card("", pl["outro"].get("call_to_action") or pl["url"] or pl["title"], pl["url"], hero,
-                         secs[-1], clips[-1])
+                png = paint.close(pl["outro"].get("call_to_action") or pl["title"], pl["url"] or "",
+                                  pl["outro"].get("small", ""), clips[-1][:-4] + "_close.png")
+                cards.card_clip([png], secs[-1], clips[-1])
+            for c in caps:
+                if not os.path.exists(c["png"]):
+                    paint.caption(c["text"], c["png"])
         finally:
             rec.close()
-    keep = {os.path.basename(c)[:-4] for c in clips}
-    for f in os.listdir(cdir):              # segments of an older plan (clips, their sound and caption images)
-        if f.startswith("seg_") and f.split(".")[0].removesuffix("_own").removesuffix("_cap") not in keep:
+    keep = {os.path.basename(c)[:-4] for c in clips} | {os.path.basename(c["png"]) for c in caps}
+    for f in os.listdir(cdir):              # files of an older plan (clips, their sound, card and caption images)
+        stem = f.split(".")[0]
+        for tail in ("_own", "_title", "_problem", "_close"):
+            stem = stem.removesuffix(tail)
+        if (f.startswith("seg_") and stem not in keep) or (f.startswith("cap_") and f not in keep):
             os.unlink(os.path.join(cdir, f))
 
     mix = os.path.join(job_dir, "soundtrack.wav")
@@ -183,7 +196,8 @@ def prep(job_dir: str, req: Dict, step: Callable[[str, float], None] = lambda s,
         assemble.soundtrack(job_dir, vinfo["wavs"], secs, req.get("music") or None, mix, own)
         write_json(os.path.join(job_dir, "soundtrack.json"), {"key": mix_key})
     log(f"ready to edit: {len(clips)} clips, {sum(secs):.1f} s")
-    ready = {"plan": pl, "clips": clips, "mix": mix, "secs": secs, "name": _name(job_dir, pl, req)}
+    ready = {"plan": pl, "clips": clips, "mix": mix, "secs": secs, "name": _name(job_dir, pl, req),
+             "captions": [{k: c[k] for k in ("png", "start", "end", "text")} for c in caps]}
     write_json(os.path.join(job_dir, "ready.json"), ready)
     return ready
 
@@ -210,13 +224,14 @@ def edit(job_dir: str, req: Dict, ready: Dict, step: Callable[[str, float], None
         from . import resolve_edit
         exports = [k for k, want in (("timeline", "timeline"), ("project", "resolve_project")) if want in kinds]
         try:
-            res = resolve_edit.edit(job_dir, ready["name"], ready["clips"], ready["mix"],
-                                    [s["caption"] for s in ready["plan"]["scenes"]], job_dir, log, exports)
+            res = resolve_edit.edit(job_dir, ready["name"], ready["clips"], ready["mix"], ready["secs"],
+                                    ready.get("captions") or [], job_dir, log, exports)
         finally:
             resolve_edit.close_if_started(log)
     else:
         res = {"video": assemble.edit_ffmpeg(job_dir, ready["clips"], ready["mix"],
-                                             os.path.join(job_dir, ready["name"] + ".mp4"))}
+                                             os.path.join(job_dir, ready["name"] + ".mp4"), ready["secs"],
+                                             ready.get("captions") or [])}
     res["editor"] = editor
     step("gathering the deliverables", 0.97)
     wavs = (read_json(os.path.join(job_dir, "voice", "voice.json"), {}) or {}).get("wavs") or []
