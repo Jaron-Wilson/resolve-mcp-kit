@@ -272,3 +272,29 @@ def test_a_relative_job_folder_is_made_absolute(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     pipeline.run("my-first-video", {}, step=lambda s, f: None)
     assert seen == [str(tmp_path / "my-first-video")] * 2
+
+
+def test_get_downloads_the_finished_video(tmp_path, monkeypatch):
+    """`site-video get` once saved an empty file: the response was closed before it was read."""
+    import os
+    import threading
+    from http.server import ThreadingHTTPServer
+    from site_video import cli
+    from site_video.queue import Queue
+    from site_video.server import make_handler
+    from site_video.util import write_json
+    q = Queue(str(tmp_path / "home"))
+    os.makedirs(os.path.join(q.jobs_dir, "j1"))
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"not really a video" * 1000)
+    write_json(os.path.join(q.jobs_dir, "j1", "job.json"),
+               {"id": "j1", "created": 1, "request": {}, "status": "done", "video": str(video)})
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(q))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        out = tmp_path / "out.mp4"
+        cli.main(["get", "j1", "-o", str(out), "--server", f"http://127.0.0.1:{srv.server_address[1]}"])
+        assert out.read_bytes() == video.read_bytes()
+    finally:
+        srv.shutdown()
+        srv.server_close()

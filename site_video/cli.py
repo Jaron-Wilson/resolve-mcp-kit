@@ -36,8 +36,11 @@ def _http(server, method, path, body=None, raw=False):
     req = urllib.request.Request(server.rstrip("/") + path, json.dumps(body).encode() if body is not None else None,
                                  headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=600) as r:
-            return r if raw else json.load(r)
+        r = urllib.request.urlopen(req, timeout=600)
+        if raw:
+            return r                    # the caller reads it, so it must stay open
+        with r:
+            return json.load(r)
     except urllib.error.HTTPError as e:
         try:
             msg = json.load(e).get("error")
@@ -225,7 +228,7 @@ def main(argv=None):
     if a.cmd == "get":
         r = _http(a.server, "GET", f"/api/jobs/{a.id}/video", raw=True)
         name = a.output or (r.headers.get("Content-Disposition", "").split('filename="')[-1].rstrip('"') or a.id + ".mp4")
-        with open(name, "wb") as f:
+        with r, open(name, "wb") as f:
             while True:
                 chunk = r.read(1 << 20)
                 if not chunk:

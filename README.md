@@ -24,8 +24,8 @@ for the MCP server.
 - **Python 3.10 or newer.** 3.12 is a safe choice. The Resolve scripting module also has to match the Python that
   Resolve supports.
 - **Disk space.** About 1 GB for the install (the packages, plus Chromium and its helpers, which Playwright downloads
-  once). Each video job keeps its recorded clips, voice files and the final MP4. Plan on a few hundred MB per minute
-  of video, and delete jobs you no longer need.
+  once). Each video job keeps its recorded clips, voice files and the final MP4. A 30 second video took 18 MB on the ffmpeg path. Long
+  videos, the `clips` deliverable and Resolve renders take much more. Delete jobs you no longer need.
 - **DaVinci Resolve Studio** (paid) for anything that touches Resolve. Blackmagic's free edition does not allow
   external scripting in most versions, so expect "Could not attach to Resolve" there. Resolve must run on the same
   computer as the server, with a project open.
@@ -162,7 +162,8 @@ You need the install above and a running model. Everything below works on Window
    It explores the site, writes the script, records, and edits. It prints progress lines such as `[ 10%] writing the script`.
    A 30 second video takes a few minutes. The model is the slow part.
 
-3. When it ends it prints a JSON summary. The video is at `my-first-video/deliverables/<title>-<id>.mp4`. Open it with any player.
+3. When it ends it prints a JSON summary. The `video` line is the full path: it is in `my-first-video/deliverables/` and is named after the
+   video's title. Open it with any player.
    The folder also has `plan.json` (the script), `log.txt` and `crawl.json`.
 
 Without `--out`, the job goes to `~/site-videos/jobs/<time>-cli/` (`SITE_VIDEO_HOME` moves it).
