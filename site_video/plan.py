@@ -145,7 +145,8 @@ def _repeats(v: Dict, scenes: List[Dict]) -> bool:
     return False
 
 
-def check(plan: Dict, crawl: Optional[Dict], seconds: Optional[int], media: Optional[List[Dict]] = None) -> Dict:
+def check(plan: Dict, crawl: Optional[Dict], seconds: Optional[int], media: Optional[List[Dict]] = None,
+          fill_missing: bool = True) -> Dict:
     """Validate and repair a plan: known URLs and videos only, sane timings, text that fits, every video used."""
     media = media or []
     pages = (crawl or {}).get("pages") or []
@@ -175,7 +176,7 @@ def check(plan: Dict, crawl: Optional[Dict], seconds: Optional[int], media: Opti
         scenes.append({"url": url, "caption": str(s.get("caption") or "")[:60], "narration": narration,
                        "seconds": round(max(secs, need), 2), "actions": acts})
     used = {s["video"] for s in scenes if "video" in s}
-    for i, m in enumerate(media):           # a video the model left out still goes in, spread among the scenes
+    for i, m in enumerate(media if fill_missing else []):   # a video the model left out still goes in, spread out
         if m["file"] not in used:
             v = _video_scene({"video": m["file"], "from": 0, "to": min(m["seconds"], 45.0),
                               "sound": "keep" if m.get("audio") else "voice",

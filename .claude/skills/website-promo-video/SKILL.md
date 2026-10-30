@@ -18,7 +18,8 @@ afterwards; without Resolve it is joined with ffmpeg.
 
 From the `resolve` MCP server (prefixed in your client, e.g. `resolve_make_site_video`):
 
-- `make_site_video(url, length, notes, voice, editor, name, model, deliverables, videos)`: queue one. Returns a job id at once.
+- `make_site_video(url, length, notes, voice, editor, name, model, deliverables, videos, cursor)`: queue one. Returns a job id at once.
+- `edit_site_video(job_id, change, cursor)`: change a finished video in words and make it again (only what changed).
 - `site_video_status(job_id)`: where it is. Done jobs carry `video` (a path on the queue's machine) and `download`.
 - `list_site_videos(limit)`: the newest jobs.
 
@@ -51,6 +52,14 @@ one of its `SITE_VIDEO_MEDIA_DIRS` folders. Do not guess paths: ask where the vi
 
 Voices: `none`, `openai[:voice]` (OpenAI or a Kokoro-FastAPI server, e.g. `openai:af_heart`), `elevenlabs:<voice id>`,
 `odysseus`. If the voice they named is not configured on the queue, the job fails with a clear reason: tell them.
+
+## Changing a finished video
+
+When they want something different in a video already made ("point at the Pro plan instead", "the intro is too
+long", "swap those two scenes", "use the hand cursor"), call `edit_site_video(job_id, change, cursor)` with their
+words as `change`. It returns what changed; only those scenes are made again (about a minute for one scene). Tell
+them what changed, then check `site_video_status` as usual. They can also do it themselves with the job's Change
+button on the queue's page.
 
 ## Ground rules
 

@@ -136,6 +136,22 @@ class Queue:
         self._wake.set()
         return self.get(jid)
 
+    def revise(self, jid: str, plan: Dict, cursor: Optional[str] = None) -> Dict:
+        """Make an edited script the job's script (and, if given, change its cursor), then make the video again.
+        Only what changed is redone."""
+        from . import pipeline, revise
+        j = self.get(jid)
+        if j["status"] in ACTIVE or j["status"] == "queued":
+            raise ValueError(f"the job is {j['status']}; wait for it to finish, or cancel it first")
+        req = dict(j["request"])
+        if cursor is not None:
+            req["cursor"] = pipeline._cursor(cursor)
+        done = revise.apply(self._path(jid), plan)
+        self._update(jid, request=req, status="queued", step="queued with your changes", error=None, progress=0.0,
+                     revisions=int(j.get("revisions") or 0) + 1, changes=done["changes"][:40])
+        self._wake.set()
+        return self.get(jid)
+
     def remove(self, jid: str) -> Dict:
         """Delete a job that is not running, with its files. (Its Resolve project, if any, stays in Resolve.)"""
         import shutil

@@ -44,10 +44,23 @@ TOOLS = [
             "notes": {"type": "string", "description": "What the video must do or show, in the user's words; auto if nothing"},
             "voice": {"type": "string", "description": "none, odysseus, openai[:voice], elevenlabs:<voice id>; leave out for the default"},
             "editor": {"type": "string", "enum": ["auto", "resolve", "ffmpeg"]},
+            "cursor": {"type": "string", "enum": ["arrow", "hand", "ring", "none"], "description": "The cursor drawn on website scenes: arrow (default), hand, ring (arrow with a highlight and a ripple on clicks), none"},
             "model": {"type": "string", "description": "The model that writes the script, if the user named one; leave out for the default"},
             "deliverables": {"type": "array", "items": {"type": "string", "enum": ["video", "script", "voiceover", "clips", "timeline", "resolve_project", "package"]},
                              "description": "What to hand back besides the video, if the user asked: script, voiceover files, clips, the timeline (.drt/.fcpxml/.edl), the Resolve project (.drp), or package (all of it zipped)"}}}},
      "x-odysseus": {"keywords": ["video", "promo", "walkthrough"], "read_only": False}},
+    {"type": "function", "function": {
+        "name": "edit_site_video",
+        "description": ("Change a finished (or failed) site video and make it again: describe the change in the user's "
+                        "words, e.g. 'in scene 3 point the cursor at the Pro plan instead', 'make the intro shorter', "
+                        "'swap scenes 4 and 5', 'use the hand cursor'. Only the scenes that change are redone. "
+                        "Returns what changed; check progress with site_video_status."),
+        "parameters": {"type": "object", "properties": {
+            "job_id": {"type": "string"},
+            "change": {"type": "string", "description": "The change, in the user's words"},
+            "cursor": {"type": "string", "enum": ["arrow", "hand", "ring", "none"], "description": "Only if they asked for a different cursor"}},
+            "required": ["job_id", "change"]}},
+     "x-odysseus": {"keywords": ["video", "change", "edit"], "read_only": False}},
     {"type": "function", "function": {
         "name": "site_video_status",
         "description": "How a site video job is going (status, current step, error), or the finished video's link.",
@@ -151,12 +164,21 @@ def tool(name, args):
     base = os.environ.get("ODYSSEUS_MOD_BASE", f"/mods/{MOD_ID}")
     if name == "make_site_video":
         body = {"url": str(args.get("url") or "").strip(), "media": args.get("videos") or [],
+                "cursor": args.get("cursor") or "arrow",
                 "length": args.get("length") or "auto",
                 "notes": args.get("notes") or "auto", "editor": args.get("editor") or "auto",
                 "model": args.get("model") or "", "deliverables": args.get("deliverables") or ["video"]}
         body["voice"] = args.get("voice") or BACKEND.json("GET", "/api/info").get("default_voice", "none")
         j = BACKEND.json("POST", "/api/jobs", body)
         return {"output": _job_text(j, base) + " It takes a few minutes; check it with site_video_status.", "data": j}
+    if name == "edit_site_video":
+        jid = str(args.get("job_id") or "")
+        got = BACKEND.json("POST", f"/api/jobs/{jid}/suggest", {"change": str(args.get("change") or "")})
+        body = {"plan": got["plan"]}
+        if args.get("cursor"):
+            body["cursor"] = args["cursor"]
+        j = BACKEND.json("POST", f"/api/jobs/{jid}/revise", body)
+        return {"output": "Changed: " + "; ".join(got["changes"]) + ". " + _job_text(j, base), "data": j}
     if name == "site_video_status":
         j = BACKEND.json("GET", f"/api/jobs/{args.get('job_id')}")
         return {"output": _job_text(j, base), "data": j}
