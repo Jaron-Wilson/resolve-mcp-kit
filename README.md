@@ -190,6 +190,23 @@ Give it a link and it makes a narrated promo video of the site:
 
 It never logs in, buys, submits forms or deletes anything on the site. Only make videos of sites you may show.
 
+### Your own videos
+
+A job can use a website, your own videos, or both:
+
+| You have | You give | What happens |
+|---|---|---|
+| A website | the link | The site is recorded, as above |
+| Videos, no website | the videos, each with a note ("app demo, use the part where I add a card") | The script picks moments from your videos, with narration over them or their own sound |
+| A website and a few videos | both, and a length | Your videos go in where they fit the story, and website scenes fill the rest of the length |
+
+Before writing the script it watches each video: a frame every few seconds described by a vision model
+(`SITE_VIDEO_VISION_MODEL`), and what is said, by time, from speech to text (`SITE_VIDEO_STT`). Without them it
+knows only your notes and each video's length, so describe the videos well. A scene from your video plays either its
+own sound (someone speaking) or the narration with its sound quietly under it. It gets the same lower-third caption
+as the website scenes, and is fitted to 1920x1080 at 30 fps, with letterboxing if the shape differs. Every video you
+give is used at least once.
+
 ### Install
 
 ```
@@ -212,6 +229,10 @@ ffmpeg comes with `imageio-ffmpeg`; set `FFMPEG` to use your own.
 | `SITE_VIDEO_TOKEN` | If set, the queue's HTTP API and page need it. |
 | `SITE_VIDEO_RESOLVE_PROJECT` | The Resolve project for edits (default `Site videos`). |
 | `SITE_VIDEO_START_RESOLVE` | Resolve's program file: if set, a Resolve edit opens Resolve when it is closed (run the queue in your desktop session). |
+| `SITE_VIDEO_VISION_MODEL` | A vision model on the `SITE_VIDEO_LLM_URL` endpoint (e.g. `qwen2.5vl:7b`) that describes frames of your videos. |
+| `SITE_VIDEO_STT` | Speech to text for your videos: `openai` (`SITE_VIDEO_STT_URL`, `SITE_VIDEO_STT_KEY`, `SITE_VIDEO_STT_MODEL`, any OpenAI-compatible `/audio/transcriptions`, e.g. a faster-whisper server) or `odysseus` (the `SITE_VIDEO_ODYSSEUS_URL` server). |
+| `SITE_VIDEO_MAX_UPLOAD_MB` | The largest video the queue accepts as an upload (default 4096). |
+| `SITE_VIDEO_MEDIA_DIRS` | Folders (separated by `;` on Windows, `:` elsewhere) whose videos API and agent jobs may use without uploading. Otherwise jobs sent over HTTP can only use uploads. |
 
 ### One video, in a terminal
 
@@ -223,6 +244,14 @@ python -m site_video make https://example.com --length 2min --notes "show pricin
 `auto` (Resolve if it is open, else ffmpeg), `resolve` or `ffmpeg`; `--model` picks the model that writes the
 script for this video (default `SITE_VIDEO_LLM_MODEL`; the page lists the endpoint's models); `--music file.mp3`
 plays music under the voice, quieter while it speaks.
+
+Your own videos: `--video file` (repeat it), each followed by `--note-for "what it is, what to use"`; the link is
+then optional:
+
+```
+python -m site_video make --video demo.mp4 --note-for "the app demo" --video talk.mov --length 2min
+python -m site_video make https://example.com --video demo.mp4 --video promo.mp4 --length 5min
+```
 
 ### Deliverables
 
@@ -251,6 +280,7 @@ from a terminal or another program:
 
 ```
 python -m site_video add https://example.com --length 5min --notes "..." --wait
+python -m site_video add --video demo.mp4 --note-for "the app demo" --length 1min      # uploads demo.mp4
 python -m site_video list
 python -m site_video get <id> -o video.mp4
 ```
@@ -277,6 +307,8 @@ turn "go through this site and make a 5 minute video, make sure you show X" into
   no such screen; if Resolve is already open on the Project Manager, open any project first.
 - Requested lengths are targets: a scene is never shorter than its narration, and the title cards add a few
   seconds, so a 30 second request usually comes out at 35 to 40.
+- Your videos are cut, never sped up or slowed: with no website, a video cannot run longer than the footage you
+  give. With a website, a long length is filled with website scenes of at most 90 seconds each.
 - Sites that need a login, block headless browsers or show a full-screen pop-up the recorder cannot dismiss will not
   record well.
 

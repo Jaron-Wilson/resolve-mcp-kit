@@ -36,18 +36,25 @@ def models() -> list:
     return ids
 
 
-def chat(system: str, user: str, max_tokens: int = 6000, timeout: int = 600, model: str = "") -> str:
+def chat(system: str, user: str, max_tokens: int = 12000, timeout: int = 900, model: str = "") -> str:
+    """The model's answer. A thinking model can spend the whole budget thinking and answer nothing: then it is
+    asked once more with twice the budget."""
     s = settings()
-    body = {"model": model or s["model"], "max_tokens": max_tokens, "temperature": 0.4, "stream": False,
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
     headers = {"Content-Type": "application/json"}
     if s["key"]:
         headers["Authorization"] = "Bearer " + s["key"]
-    req = urllib.request.Request(s["url"] + "/chat/completions", json.dumps(body).encode(), headers)
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        out = json.load(r)
-    text = out["choices"][0]["message"].get("content") or ""
-    return re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
+    for budget in (max_tokens, max_tokens * 2):
+        body = {"model": model or s["model"], "max_tokens": budget, "temperature": 0.4, "stream": False,
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
+        req = urllib.request.Request(s["url"] + "/chat/completions", json.dumps(body).encode(), headers)
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            out = json.load(r)
+        choice = out["choices"][0]
+        text = re.sub(r"<think>.*?</think>", "", choice["message"].get("content") or "", flags=re.S).strip()
+        if text or choice.get("finish_reason") != "length":
+            return text
+    raise RuntimeError(f"{out.get('model') or body['model']} used all {budget} tokens thinking and gave no answer; "
+                       "pick a smaller or non-thinking script model")
 
 
 def json_from(text: str):

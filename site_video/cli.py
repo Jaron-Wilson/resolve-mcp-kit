@@ -1,10 +1,15 @@
-"""site-video: make a promo video of a website.
+"""site-video: make a promo video of a website, of your own videos, or of both.
 
-  site-video make URL [--length 5min|90s|auto] [--notes "show pricing"|auto] [--voice none|openai:alloy|elevenlabs:ID|odysseus]
-                      [--editor auto|resolve|ffmpeg] [--model qwen3:8b] [--music track.mp3] [--name NAME] [--out DIR]
+  site-video make [URL] [--video clip.mp4 [--note-for "what it is"]]... [--length 5min|90s|auto] [--notes "show pricing"|auto]
+                      [--voice none|openai:alloy|elevenlabs:ID|odysseus] [--editor auto|resolve|ffmpeg] [--model qwen3:8b]
+                      [--music track.mp3] [--name NAME] [--out DIR]
   site-video serve [--host 127.0.0.1] [--port 8940] [--parallel 2] [--home DIR]
-  site-video add URL [same options as make] [--server http://host:8940]
+  site-video add [URL] [same options as make] [--server http://host:8940]   (videos are uploaded to the server)
   site-video list | status ID | cancel ID | retry ID | remove ID | get ID [-o file.mp4]     [--server ...]
+
+A link, your own videos, or both. A video's note says what it is and what to use from it:
+--video demo.mp4 --note-for "app demo, use the part where I add a card". With a link and videos, website scenes
+fill the length around your videos.
 
 The model that writes the script, and the voices, are set with environment variables: see README.
 """
@@ -38,10 +43,34 @@ def _http(server, method, path, body=None, raw=False):
         sys.exit(f"error: {msg}")
 
 
+def _upload(server, path):
+    """Send one video to the server; its path there, for the job's media list."""
+    from urllib.parse import quote
+    headers = {"Content-Type": "application/octet-stream", "Content-Length": str(os.path.getsize(path))}
+    tok = os.environ.get("SITE_VIDEO_TOKEN")
+    if tok:
+        headers["Authorization"] = "Bearer " + tok
+    with open(path, "rb") as f:
+        req = urllib.request.Request(f"{server.rstrip('/')}/api/uploads?name={quote(os.path.basename(path))}", f,
+                                     headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=3600) as r:
+                return json.load(r)["file"]
+        except urllib.error.HTTPError as e:
+            sys.exit(f"error uploading {path}: {e.read().decode(errors='replace')[:300]}")
+
+
+def _media(a):
+    notes = list(a.note_for or [])
+    return [{"file": v, "note": notes[i] if i < len(notes) else ""} for i, v in enumerate(a.video or [])]
+
+
 def _show(j):
     r = j.get("request", {})
     pct = f"{int((j.get('progress') or 0) * 100)}%"
-    print(f"{j['id']}  {j['status']:<9} {pct:>4}  {r.get('url')}  ({j.get('step') or ''})")
+    what = " + ".join(x for x in [r.get("url") or "",
+                                  ", ".join(os.path.basename(m["file"]) for m in r.get("media") or [])] if x)
+    print(f"{j['id']}  {j['status']:<9} {pct:>4}  {what}  ({j.get('step') or ''})")
     if j.get("error"):
         print("    error:", j["error"])
     if j.get("video"):
@@ -53,7 +82,10 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def job_args(p):
-        p.add_argument("url")
+        p.add_argument("url", nargs="?", default="", help="the website (optional with --video)")
+        p.add_argument("--video", action="append", help="one of your own videos to edit in (repeat for more)")
+        p.add_argument("--note-for", action="append",
+                       help="what the matching --video is and what to use from it (in the same order)")
         p.add_argument("--length", default="auto", help="5min, 90s, 1:30 or auto (default)")
         p.add_argument("--notes", default="auto", help='what the video must do, e.g. "show pricing, end on sign-up"')
         p.add_argument("--voice", default=os.environ.get("SITE_VIDEO_DEFAULT_VOICE", "none"),
@@ -100,7 +132,8 @@ def main(argv=None):
     if a.cmd == "make":
         from . import pipeline
         try:
-            req = pipeline.request(a.url, a.length, a.notes, a.voice, a.editor, a.music, a.name, a.model, a.deliver)
+            req = pipeline.request(a.url, a.length, a.notes, a.voice, a.editor, a.music, a.name, a.model, a.deliver,
+                                   _media(a))
         except ValueError as e:
             sys.exit(f"error: {e}")
         out = a.out or os.path.join(DEFAULT_HOME, "jobs", time.strftime("%Y%m%d-%H%M%S-cli"))
@@ -112,7 +145,14 @@ def main(argv=None):
         serve(a.home, a.host, a.port, a.parallel)
         return
     if a.cmd == "add":
-        j = _http(a.server, "POST", "/api/jobs", {"url": a.url, "length": a.length, "notes": a.notes, "voice": a.voice,
+        media = _media(a)
+        for m in media:
+            if not os.path.isfile(m["file"]):
+                sys.exit(f"error: video not found: {m['file']}")
+        for m in media:
+            print(f"uploading {m['file']} ...", flush=True)
+            m["file"] = _upload(a.server, m["file"])
+        j = _http(a.server, "POST", "/api/jobs", {"url": a.url, "media": media, "length": a.length, "notes": a.notes, "voice": a.voice,
                                                     "editor": a.editor, "name": a.name, "model": a.model,
                                                     "deliverables": a.deliver.split(",")})
         _show(j)

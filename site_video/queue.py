@@ -9,6 +9,7 @@ status:   queued -> preparing -> waiting -> editing -> done   (or failed / cance
 
 import os
 import secrets
+import shutil
 import subprocess
 import sys
 import threading
@@ -67,9 +68,50 @@ class Queue:
             write_json(p, j)
             return j
 
+    # ── uploads: the owner's videos, sent before the job that uses them ──
+    @property
+    def uploads_dir(self) -> str:
+        return os.path.join(self.home, "uploads")
+
+    def save_upload(self, name: str, stream, size: int) -> str:
+        """Write `size` bytes from `stream` as a new upload; its path goes in a job's media list."""
+        base = os.path.basename(str(name or "").replace("\\", "/")).strip()
+        base = "".join(ch if ch.isalnum() or ch in " ._-()" else "_" for ch in base)[:100].strip(" .") or "video.mp4"
+        folder = os.path.join(self.uploads_dir, secrets.token_hex(6))
+        os.makedirs(folder)
+        path = os.path.join(folder, base)
+        left = size
+        with open(path, "wb") as f:
+            while left > 0:
+                chunk = stream.read(min(1 << 20, left))
+                if not chunk:
+                    break
+                f.write(chunk)
+                left -= len(chunk)
+        if left:
+            shutil.rmtree(folder, ignore_errors=True)
+            raise ValueError("the upload stopped before the end")
+        return path
+
+    def is_upload(self, path: str) -> bool:
+        up = os.path.realpath(self.uploads_dir) + os.sep
+        return os.path.realpath(path).startswith(up)
+
     def submit(self, req: Dict) -> Dict:
         jid = time.strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(3)
         os.makedirs(self._path(jid))
+        moved = []
+        for m in req.get("media") or []:        # uploads move into the job, so removing the job removes them
+            if self.is_upload(m["file"]):
+                dest = os.path.join(self._path(jid), "media", os.path.basename(m["file"]))
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                shutil.move(m["file"], dest)
+                shutil.rmtree(os.path.dirname(m["file"]), ignore_errors=True)
+                moved.append(dict(m, file=dest))
+            else:
+                moved.append(m)
+        if req.get("media"):
+            req = dict(req, media=moved)
         j = {"id": jid, "created": time.time(), "request": req, "status": "queued", "step": "waiting for a free slot",
              "progress": 0.0, "error": None, "video": None}
         write_json(os.path.join(self._path(jid), "job.json"), j)
