@@ -78,7 +78,7 @@ python -m pip install pytest
 python -m pytest tests
 ```
 
-You should see `80 passed`.
+Every test should pass (the last line reads like `81 passed`).
 
 ffmpeg needs no install: the `imageio-ffmpeg` package ships a copy. Set `FFMPEG` to the path of your own ffmpeg to use that
 instead.
@@ -301,7 +301,7 @@ Editing tools, only when `RESOLVE_MCP_ALLOW_WRITE=1` (the start scripts set it; 
 | `add_marker` | Timeline marker |
 | `save_project` | Save |
 | `render_formats_and_codecs`, `start_render`, `render_status` | Queue, start and watch a render |
-| `make_site_video`, `site_video_status`, `list_site_videos` | Use a site-video queue (`SITE_VIDEO_SERVER`, default `http://127.0.0.1:8940`) |
+| `make_site_video`, `edit_site_video`, `site_video_status`, `list_site_videos` | Use a site-video queue (`SITE_VIDEO_SERVER`, default `http://127.0.0.1:8940`) |
 
 ### MCP server settings
 
@@ -502,8 +502,8 @@ The old script is kept as `plan.<n>.json`.
 
 ### From an agent
 
-With the MCP server running and a queue at `SITE_VIDEO_SERVER`, an agent can call `make_site_video`, `site_video_status` and
-`list_site_videos`. The `website-promo-video` skill teaches it to turn "make a 5 minute video of this site, show X" into a job.
+With the MCP server running and a queue at `SITE_VIDEO_SERVER`, an agent can call `make_site_video`, `edit_site_video`,
+`site_video_status` and `list_site_videos`. The `website-promo-video` skill teaches it to turn "make a 5 minute video of this site, show X" into a job.
 
 ### Optional: as an Odysseus mod
 
@@ -574,10 +574,10 @@ A job's log is `log.txt` in its folder, and a failed stage's output is `stage.ou
 - **Tested by the suite:** `python -m pytest tests` runs about 80 tests with a fake Resolve and fake models. They check
   the MCP server's tools and arguments, the script checker, the queue, the HTTP API, length and voice parsing, the browser
   extension's address handling, and that no tailnet address or personal path is hardcoded.
-- **Run end to end on Linux (Ubuntu 24.04, Python 3.12):** the install above, the test suite, the queue and its page, and a video made through
-  the ffmpeg editor of a small local page, with a stand-in for the language model.
+- **Run end to end on Linux (Ubuntu 24.04, Python 3.12):** the install above, the test suite, the queue and its page, and the MCP server answering `resolve_status` (it reports `connected: false` with a reason, as there is no Resolve), and a video made through
+  the ffmpeg editor of a small local page. The language model was a small stand-in server, not a real model: no real model was reachable from that machine.
 - **Developed on Windows with Resolve Studio 21.1:** the Resolve edit and render. They were not run again while this guide was written.
-- **Not tested:** macOS anywhere; Resolve on Linux; free Resolve; the MCP editing tools (`add_title`, `append_clips`, codec keys
+- **Not tested:** `start-resolve-mcp.cmd` and every Windows command in this guide (the shell version was run); macOS anywhere; Resolve on Linux; free Resolve; the MCP editing tools (`add_title`, `append_clips`, codec keys
   for `start_render`) against a real Resolve, only against a fake; the browser extension and the sign-in window in a real browser while this guide was written; ElevenLabs, Kokoro and speech to text servers; the Odysseus mod outside its own tests.
 
 ## License
