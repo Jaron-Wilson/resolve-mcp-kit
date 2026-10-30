@@ -217,27 +217,36 @@ def edit(work: str, name: str, clips: List[str], mix: str, secs: List[float], ca
         if not aud:
             raise RuntimeError("the soundtrack did not go onto the timeline")
 
-        # V2: captions are stills; Resolve honors a still's mark in/out (not startFrame/endFrame) for its length
+        # V2: captions are stills. Resolve imports a still at its own frame rate (24), which stretches a mark in/out
+        # on a 30 fps timeline, so each is set to the timeline's rate first; its mark in/out (not startFrame/endFrame)
+        # sets its length. A length still off after a few tries is kept: a caption a frame long beats none.
+        for png in pngs:
+            try:
+                item(png).SetClipProperty("FPS", str(FPS))
+            except Exception:
+                pass
         placed = 0
         for cap in captions:
             still, want = item(cap["png"]), frames(cap["end"] - cap["start"])
-            end = want - 1
-            for _ in range(3):
+            end, last = want - 1, None
+            for attempt in range(3):
                 still.SetMarkInOut(0, end)
                 got = mp.AppendToTimeline([{"mediaPoolItem": still, "trackIndex": 2,
                                             "recordFrame": start + frames(cap["start"])}]) or []
                 still.ClearMarkInOut()
                 if not got:
                     break
-                d = int(got[0].GetDuration())
-                if d == want:
-                    placed += 1
-                    for pos, align in (("start", "right"), ("end", "left")):
-                        got[0].AddTransition({"type": "Cross Dissolve", "category": "simple", "position": pos,
-                                              "alignment": align, "duration": 8})
+                last, d = got[0], int(got[0].GetDuration())
+                if d == want or attempt == 2:
                     break
-                tl.DeleteClips([got[0]])
-                end += want - d
+                tl.DeleteClips([last])
+                last = None
+                end = max(0, round((end + 1) * want / d) - 1)
+            if last is not None:
+                placed += 1
+                for pos, align in (("start", "right"), ("end", "left")):
+                    last.AddTransition({"type": "Cross Dissolve", "category": "simple", "position": pos,
+                                        "alignment": align, "duration": 8})
         if placed < len(captions):
             log(f"  {len(captions) - placed} caption(s) did not go onto the timeline")
         log(f"project {name!r}, timeline {tl_name!r}: {len(vids)} clips with dissolves, {placed} captions, soundtrack")

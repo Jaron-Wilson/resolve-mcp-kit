@@ -41,18 +41,29 @@ class Painter:
         try:
             if site_url:
                 self.page.goto(site_url, wait_until="load", timeout=30000)
+                self.page.wait_for_timeout(1200)       # a site that redirects or reloads itself does it now
         except Exception as e:
             log(f"  cards: the site did not open ({type(e).__name__}); drawing with system fonts")
-        self.page.evaluate("""() => { document.documentElement.style.cssText = 'background:transparent!important';
-            document.body.innerHTML = ''; document.body.style.cssText = 'margin:0;background:transparent!important';
-            const host = document.createElement('div'); host.id = '__sv_host';
-            host.style.cssText = 'position:fixed;left:0;top:0;width:1920px;height:1080px;z-index:2147483647';
-            document.body.appendChild(host); host.attachShadow({mode: 'open'}); }""")
+            self.page.goto("about:blank")
+        try:
+            self._host()
+        except Exception:
+            # the site moved on under us (a late redirect): draw on a blank page with system fonts instead
+            log("  cards: the site kept loading; drawing with system fonts")
+            self.page.goto("about:blank")
+            self._host()
         self.logo = None
         lp = os.path.join(brand_dir, brand["logo"]) if brand.get("logo") and brand_dir else ""
         if lp and os.path.exists(lp):
             with open(lp, "rb") as f:
                 self.logo = "data:image/png;base64," + base64.b64encode(f.read()).decode()
+
+    def _host(self) -> None:
+        self.page.evaluate("""() => { document.documentElement.style.cssText = 'background:transparent!important';
+            document.body.innerHTML = ''; document.body.style.cssText = 'margin:0;background:transparent!important';
+            const host = document.createElement('div'); host.id = '__sv_host';
+            host.style.cssText = 'position:fixed;left:0;top:0;width:1920px;height:1080px;z-index:2147483647';
+            document.body.appendChild(host); host.attachShadow({mode: 'open'}); }""")
 
     def _shot(self, body: str, css: str, out_png: str, transparent: bool) -> str:
         self.page.evaluate("([b, c]) => { document.getElementById('__sv_host').shadowRoot.innerHTML = '<style>' + c + '</style>' + b; }",

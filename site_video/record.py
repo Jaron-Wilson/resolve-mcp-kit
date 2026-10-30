@@ -15,6 +15,7 @@ time where nothing happened.
 import base64
 import json
 import os
+import re
 import shutil
 import time
 from typing import Dict, List
@@ -107,15 +108,22 @@ SCROLL_S = 1.8                # an eased scroll, before the scene is fitted to i
 TYPE_MS = 85                  # per key
 GAP_MAX = 0.6                 # nothing happening for longer than this is cut down to it
 SPEED_MAX = 2.4
-VERSION = 3      # bump when a recording would come out differently, so saved website clips are made again
+VERSION = 4      # bump when a recording would come out differently, so saved website clips are made again
 # requests that never go out while recording: analytics and trackers (and anything but a plain page load)
 BLOCK = ("google-analytics.com", "googletagmanager.com", "doubleclick.net", "segment.io", "segment.com", "hotjar",
          "facebook.net", "mixpanel", "clarity.ms", "posthog", "amplitude", "intercom", "sentry.io", "fullstory")
 
 
-def _guard(route):
+# never clicked, even on your own site with changes allowed
+DANGER = re.compile(r"\b(log ?out|sign ?out|delete|remove|erase|destroy|buy|purchase|checkout|check out|pay|order now|"
+                    r"subscribe|unsubscribe|cancel (my )?(account|subscription))\b", re.I)
+
+
+def _guard(route, changes: bool = False):
+    """Only page loads go out, unless changes are allowed (your own site): then anything but a DELETE does."""
     req = route.request
-    if req.method not in ("GET", "HEAD", "OPTIONS") or any(b in req.url for b in BLOCK):
+    if any(b in req.url for b in BLOCK) or (req.method == "DELETE" if changes else
+                                            req.method not in ("GET", "HEAD", "OPTIONS")):
         return route.abort()
     return route.continue_()
 
@@ -123,7 +131,8 @@ def _guard(route):
 class Recorder:
     """One browser for a job; scenes on the same URL continue where the last one left off."""
 
-    def __init__(self, work: str, log=print, cursor: str = "dot", color: str = "#2f6fed", zoom: float = 1.0):
+    def __init__(self, work: str, log=print, cursor: str = "dot", color: str = "#2f6fed", zoom: float = 1.0,
+                 session: str = None, changes: bool = False):
         from playwright.sync_api import sync_playwright
         self.work, self.log = work, log
         self._pw = sync_playwright().start()
@@ -131,18 +140,25 @@ class Recorder:
         # zoom > 1: a smaller page drawn at a higher pixel ratio, so the frames are still WIDTH x HEIGHT
         self.zoom = zoom if zoom and zoom > 1 else 1.0
         self.vw, self.vh = round(WIDTH / self.zoom), round(HEIGHT / self.zoom)
-        self.ctx = self.browser.new_context(viewport={"width": self.vw, "height": self.vh}, device_scale_factor=self.zoom)
+        self.ctx = self.browser.new_context(viewport={"width": self.vw, "height": self.vh}, device_scale_factor=self.zoom,
+                                            storage_state=session)      # signed in as you (session.py), if you did
         self.ctx.add_init_script(f"window.__svCursorStyle = {json.dumps(cursor if cursor in CURSORS else 'dot')};"
                                  f"window.__svCursorColor = {json.dumps(color or '#2f6fed')};")
         self.ctx.add_init_script(OVERLAY)
-        self.ctx.route("**/*", _guard)
+        self.ctx.route("**/*", lambda route: _guard(route, changes))
         self.page = self.ctx.new_page()
         self.cdp = self.ctx.new_cdp_session(self.page)
         self.url = None
         self.mouse = (self.vw * 0.62, self.vh * 0.55)
         self._frames: List = []
+        self.misses: List[str] = []
         self._dir = None
         self.cdp.on("Page.screencastFrame", self._on_frame)
+
+    def _miss(self, msg: str) -> None:
+        """A step that did not happen: logged, and kept with the scene's clip for the review (review.py)."""
+        self.log(msg)
+        self.misses.append(msg.strip())
 
     def close(self):
         try:
@@ -245,9 +261,12 @@ class Recorder:
         return box
 
     def _point_at(self, text: str, click: bool) -> None:
+        if click and DANGER.search(text or ""):
+            self.log(f"  not clicking {text!r}: it could delete, buy or sign out")
+            click = False
         el = self._find(text)
         if el is None:
-            self.log(f"  not on the page: {text!r}")
+            self._miss(f"  not on the page: {text!r}")
             return
         if not self._reach(el):
             return
@@ -269,7 +288,7 @@ class Recorder:
     def _type(self, into: str, text: str, enter: bool) -> None:
         el = self._find(into, field=True)
         if el is None:
-            self.log(f"  no field to type in: {into!r}")
+            self._miss(f"  no field to type in: {into!r}")
             return
         if not self._reach(el):
             return
@@ -277,7 +296,11 @@ class Recorder:
         self.page.mouse.up()
         try:
             el.fill("")
-            el.press_sequentially(text, delay=TYPE_MS)
+            if len(text) > 60:      # a list or a paragraph: pasted, as a person would, then a moment to read it
+                el.fill(text)
+                self.page.wait_for_timeout(700)
+            else:
+                el.press_sequentially(text, delay=TYPE_MS)
             self.page.wait_for_timeout(400)
             if enter:
                 el.press("Enter")
@@ -288,7 +311,7 @@ class Recorder:
                 self.page.wait_for_timeout(900)
                 self.url = self.page.url
         except Exception as e:
-            self.log(f"  typing into {into!r} failed: {type(e).__name__}")
+            self._miss(f"  typing into {into!r} failed: {type(e).__name__}")
 
     def _run(self, actions: List[Dict]) -> None:
         for a in actions:
@@ -303,7 +326,7 @@ class Recorder:
                 else:
                     self.page.wait_for_timeout(float(a.get("seconds") or 1.5) * 1000)
             except Exception as e:
-                self.log(f"  action {a} failed: {type(e).__name__}")
+                self._miss(f"  action {a} failed: {type(e).__name__}")
 
     # ── a scene ──
     def scene(self, scene: Dict, seconds: float, out: str) -> float:
@@ -318,6 +341,7 @@ class Recorder:
         shutil.rmtree(self._dir, ignore_errors=True)
         os.makedirs(self._dir)
         self._frames = []
+        self.misses = []
         self.cdp.send("Page.startScreencast", {"format": "jpeg", "quality": 92, "maxWidth": WIDTH, "maxHeight": HEIGHT})
         # nudge the cursor so the screencast sends a first frame even on a page that is already still
         self.page.mouse.move(self.mouse[0] + 1, self.mouse[1])
@@ -332,6 +356,9 @@ class Recorder:
         self.page.wait_for_timeout(150)      # let the last frames arrive
         # screencast frames are stamped in seconds since the epoch, like time.time()
         speed = self._encode(t0, t1, seconds, out)
+        if self.misses:
+            with open(out[:-4] + ".misses.json", "w") as f:
+                json.dump(self.misses, f)
         shutil.rmtree(self._dir, ignore_errors=True)
         self._dir = None
         return speed

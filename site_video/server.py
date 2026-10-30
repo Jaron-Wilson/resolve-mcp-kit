@@ -177,6 +177,19 @@ def make_handler(q: Queue):
                     name = unquote((qs.get("name") or [""])[0])
                     path = q.save_upload(name, self.rfile, size)
                     return self._send(201, {"file": path, "name": os.path.basename(path), "bytes": size})
+                if u.path == "/api/signin":
+                    # a sign-in window opens on this computer's screen; the person logs in there and closes it
+                    from . import session
+                    site = (qs.get("url") or [""])[0] if method == "GET" else str(self._body().get("url") or "")
+                    if method == "GET":
+                        return self._send(200, session.status(site))
+                    if method == "DELETE":
+                        return self._send(200, {"forgot": session.forget(site), **session.status(site)})
+                    if method == "POST":
+                        session.host(site)                       # a readable error for a bad address
+                        import threading
+                        threading.Thread(target=session.signin, args=(site,), daemon=True).start()
+                        return self._send(202, {"opened": True, **session.status(site)})
                 if parts[:2] != ["api", "jobs"] and u.path != "/api/info":
                     return self._send(404, {"error": "not found"})
                 if u.path == "/api/info":
@@ -189,7 +202,8 @@ def make_handler(q: Queue):
                                            b.get("notes") or "auto", b.get("voice") or "none",
                                            b.get("editor") or "auto", "", str(b.get("name") or "")[:60],
                                            str(b.get("model") or ""), b.get("deliverables") or "video",
-                                           _allowed_media(q, b.get("media")), b.get("cursor") or "dot")
+                                           _allowed_media(q, b.get("media")), b.get("cursor") or "dot",
+                                           bool(b.get("changes")))
                     return self._send(201, q.submit(req))
                 jid = parts[2]
                 if len(parts) == 3 and method == "GET":
@@ -248,6 +262,9 @@ def make_handler(q: Queue):
 
         def do_POST(self):
             self._route("POST")
+
+        def do_DELETE(self):
+            self._route("DELETE")
     return H
 
 

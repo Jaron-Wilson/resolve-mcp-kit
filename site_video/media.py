@@ -41,16 +41,17 @@ def probe(path: str) -> Dict:
             "audio": " Audio:" in err}
 
 
-def _describe(jpg: str, note: str) -> str:
+def _describe(jpg: str, note: str, ask: str = "", max_tokens: int = 120) -> str:
     model = os.environ.get("SITE_VIDEO_VISION_MODEL", "")
     if not model:
         return ""
     with open(jpg, "rb") as f:
         url = "data:image/jpeg;base64," + base64.b64encode(f.read()).decode()
     s = llm.settings()
-    body = {"model": model, "max_tokens": 120, "temperature": 0.2, "stream": False, "messages": [{"role": "user", "content": [
-        {"type": "text", "text": "Describe this video frame in one short sentence for a video editor: what is on screen "
-                                 "(app screens, text, people, products). " + (f"The owner says the video is: {note}" if note else "")},
+    body = {"model": model, "max_tokens": max_tokens, "temperature": 0.2, "stream": False, "messages": [{"role": "user", "content": [
+        {"type": "text", "text": ask or ("Describe this video frame in one short sentence for a video editor: what is on "
+                                         "screen (app screens, text, people, products). "
+                                         + (f"The owner says the video is: {note}" if note else ""))},
         {"type": "image_url", "image_url": {"url": url}}]}]}
     headers = {"Content-Type": "application/json"}
     if s["key"]:
@@ -58,7 +59,7 @@ def _describe(jpg: str, note: str) -> str:
     req = urllib.request.Request(s["url"] + "/chat/completions", json.dumps(body).encode(), headers)
     with urllib.request.urlopen(req, timeout=120) as r:
         text = json.load(r)["choices"][0]["message"].get("content") or ""
-    return re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip().replace("\n", " ")[:220]
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip().replace("\n", " ")[:max(220, max_tokens * 4)]
 
 
 def _multipart(field: str, filename: str, data: bytes, extra: Dict[str, str]) -> tuple:

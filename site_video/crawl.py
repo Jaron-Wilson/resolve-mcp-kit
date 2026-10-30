@@ -31,10 +31,44 @@ _EXTRACT = r"""() => {
 }"""
 
 # text of common cookie and consent buttons, clicked once per page so they do not cover the video
-CONSENT = ["Accept all", "Accept All", "Accept", "I agree", "Agree", "Got it", "OK", "Allow all", "Accept cookies"]
+CONSENT = ["Accept all", "Accept All", "Accept", "I agree", "Agree", "Got it", "OK", "Okay", "Allow all", "Accept cookies"]
+
+# floating boxes a promo should not show: cookie bars, surveys, newsletter and feedback pop-ups. Fixed or sticky,
+# not the site's own header or menu (a full-width bar at the very top), and saying what they are
+_HIDE_POPUPS = r"""() => {
+  const words = /cookie|consent|survey|newsletter|subscribe|feedback|privacy|we use|help us|shape the future|sign up for/i;
+  let n = 0;
+  for (const el of document.querySelectorAll('body *')) {
+    const s = getComputedStyle(el);
+    if (s.position !== 'fixed' && s.position !== 'sticky') continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 40 || r.height < 20) continue;
+    if (r.top < 90 && r.width > innerWidth * 0.8 && el.closest('header,nav,[role=banner],[role=navigation]')) continue;
+    if (r.width * r.height > innerWidth * innerHeight * 0.6) continue;     // a page-sized layer is the page itself
+    if (!words.test((el.innerText || '').slice(0, 600))) continue;
+    el.style.setProperty('display', 'none', 'important'); n++;
+  }
+  return n;
+}"""
 
 
 def dismiss_consent(page) -> None:
+    _consent(page)
+    for label in ("No thanks", "Not now", "Dismiss", "Close"):
+        try:
+            btn = page.get_by_role("button", name=label, exact=True)
+            if btn.count() and btn.first.is_visible():
+                btn.first.click(timeout=1500)
+                page.wait_for_timeout(250)
+        except Exception:
+            pass
+    try:
+        page.evaluate(_HIDE_POPUPS)
+    except Exception:
+        pass
+
+
+def _consent(page) -> None:
     for label in CONSENT:
         try:
             btn = page.get_by_role("button", name=label, exact=True)
@@ -52,6 +86,8 @@ def open_page(page, url: str) -> None:
     except Exception:
         page.goto(url, wait_until="load", timeout=45000)
     dismiss_consent(page)
+    from .explore import settle
+    settle(page)
 
 
 def _same_site(a: str, b: str) -> bool:
