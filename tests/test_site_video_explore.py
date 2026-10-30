@@ -153,3 +153,38 @@ def test_only_clearly_failed_scenes_are_sent_back_to_be_fixed():
     brief = review._brief({"url": "https://ex.com/", "captions": ["Prices for every set."], "narration": "Look.",
                            "actions": [{"do": "type", "into": "Search", "text": "6016"}]})
     assert "type Search 6016" in brief and "Prices for every set." in brief
+
+
+_SET_PAGE = """<html><body style="margin:0;font:15px sans-serif"><div style="display:flex;gap:24px;padding:16px">
+ <main style="flex:1"><h1>75192-1 Millennium Falcon</h1><p>""" + "The ultimate Millennium Falcon. " * 150 + """</p>
+  <h2>Price history</h2><div style="height:300px"></div><div style="height:900px"></div></main>
+ <aside style="width:280px"><div style="height:120px">PURCHASE</div>
+  <div style="border:1px solid #ddd;padding:8px"><div>DETAILS</div><div>ID 75192-1</div><div>Pieces 7,541</div>
+   <div>Year 2017</div></div></aside></div></body></html>"""
+
+
+def test_scrolling_stops_at_what_is_talked_about_and_outlines_it():
+    """Seen 2026-10-30 on SetShelf: a scroll to "DETAILS", already on screen, moved it to the top anyway and pushed
+    the set's title and picture off the screen. Now a target in view is not scrolled to, one below is scrolled to
+    only as far as it and what it heads need, and the step's card or section gets an outline."""
+    sp = pytest.importorskip("playwright.sync_api")
+    from site_video.record import OVERLAY
+    try:
+        with sp.sync_playwright() as p:
+            b = p.chromium.launch(args=["--no-sandbox"])
+            pg = b.new_page(viewport={"width": 1280, "height": 720})
+            pg.set_content(_SET_PAGE)
+            pg.evaluate(OVERLAY)
+            plan_ = pg.evaluate("() => window.__sv.scrollPlan('DETAILS')")
+            assert plan_ == {"found": True, "y": None, "mark": True}
+            pg.evaluate("() => window.__sv.mark(window.__svTarget, 'block')")
+            assert pg.evaluate("() => window.__svMarked[0].innerText").startswith("DETAILS\nID 75192-1")
+            y = pg.evaluate("() => window.__sv.scrollPlan('Price history').y")
+            pg.evaluate("y => window.__sv.scrollTo(y, 50)", y)
+            pg.wait_for_timeout(200)
+            top = pg.evaluate("() => document.querySelector('h2').getBoundingClientRect().top")
+            assert 720 * 0.12 <= top <= 720 * 0.6           # the heading and the chart under it, not past them
+            assert pg.evaluate("() => window.__sv.markFor(document.querySelector('h1'), 'block')") is None
+            b.close()
+    except sp.Error as e:
+        pytest.skip(f"no browser here: {e}")

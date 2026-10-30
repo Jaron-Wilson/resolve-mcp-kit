@@ -38,7 +38,10 @@ OVERLAY = r"""(() => {
       background:rgba(255,214,64,.30);box-shadow:0 0 0 2px rgba(255,214,64,.55)}
     .__sv_rip{position:fixed;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;z-index:2147483646;
       pointer-events:none;border:3px solid rgba(255,214,64,.95);animation:__sv_rip .6s ease-out forwards}
-    @keyframes __sv_rip{to{transform:scale(4);opacity:0}}`;
+    @keyframes __sv_rip{to{transform:scale(4);opacity:0}}
+    #__sv_hl{position:fixed;left:0;top:0;width:0;height:0;z-index:2147483645;pointer-events:none;border-radius:12px;
+      border:3px solid ${color};box-shadow:0 0 0 6px color-mix(in srgb, ${color} 18%, transparent);
+      opacity:0;transition:opacity .35s ease}`;
   const add = () => {
     if (document.getElementById('__sv_cur')) return;
     const st = document.createElement('style'); st.textContent = css; document.documentElement.appendChild(st);
@@ -145,6 +148,83 @@ OVERLAY = r"""(() => {
       window.__svScroller = s;
       return el.getBoundingClientRect().top - top + s.scrollTop - this.viewH(s) * frac;
     },
+    // what a label stands for: the card or section it heads (the smallest one that is clearly more than the label
+    // and still fits on screen), else the label itself
+    block(el) {
+      const r0 = el.getBoundingClientRect();
+      for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+        const r = p.getBoundingClientRect();
+        if (r.height > innerHeight * 0.8 || r.width > innerWidth * 0.92) break;
+        if (r.height >= Math.max(r0.height * 2.5, 90)) return p;
+      }
+      return el;
+    },
+    // a block as a list of elements: a heading with no card of its own stands for itself and what follows it, up
+    // to the next heading of its level (about two thirds of a screen at most)
+    section(el) {
+      const b = this.block(el);
+      if (b !== el || !/^H[1-6]$/.test(el.tagName)) return [b];
+      const out = [el], lvl = +el.tagName[1], top = el.getBoundingClientRect().top;
+      for (let n = el.nextElementSibling; n; n = n.nextElementSibling) {
+        if (/^H[1-6]$/.test(n.tagName) && +n.tagName[1] <= lvl) break;
+        const r = n.getBoundingClientRect();
+        if (!r.height) continue;
+        if (r.bottom - top > innerHeight * 0.7 && out.length > 1) break;
+        out.push(n);
+        if (r.bottom - top > innerHeight * 0.7) break;
+      }
+      return out;
+    },
+    rectOf(els) {
+      const rs = els.filter(e => e && e.isConnected).map(e => e.getBoundingClientRect()).filter(r => r.width && r.height);
+      if (!rs.length) return null;
+      return {left: Math.min(...rs.map(r => r.left)), top: Math.min(...rs.map(r => r.top)),
+              right: Math.max(...rs.map(r => r.right)), bottom: Math.max(...rs.map(r => r.bottom))};
+    },
+    // what to outline for a step: a button or field itself, a row for a checkbox, else the block a label heads
+    markFor(el, how) {
+      if (!el) return null;
+      if (how === 'row') return [el.closest('tr, li, [role=row]') || el];
+      if (how === 'self' || (how === 'auto' && el.closest('button, input, select, textarea, [role=button], [role=tab], [role=menuitem]')))
+        return [el];
+      if (el.tagName === 'H1' && this.block(el) === el) return null;     // a page's own title is not outlined
+      return this.section(el);
+    },
+    // outline `el` (following it as the page scrolls) until the next mark; mark(null) fades it out
+    mark(el, how = 'self', now = false) {
+      let hl = document.getElementById('__sv_hl');
+      if (!hl) { hl = document.createElement('div'); hl.id = '__sv_hl'; document.documentElement.appendChild(hl); }
+      const t = this.markFor(el, how), pad = 8;
+      window.__svMarked = t;
+      const place = () => { const e = window.__svMarked; if (!e) return false;
+        const r = this.rectOf(e);
+        if (!r) { hl.style.opacity = '0'; return true; }
+        const x0 = Math.max(4, r.left - pad), y0 = Math.max(4, r.top - pad),
+              x1 = Math.min(innerWidth - 4, r.right + pad), y1 = Math.min(innerHeight - 4, r.bottom + pad);
+        Object.assign(hl.style, {left: x0 + 'px', top: y0 + 'px', width: Math.max(0, x1 - x0) + 'px',
+                                 height: Math.max(0, y1 - y0) + 'px'});
+        return true; };
+      hl.style.transition = now ? 'none' : '';
+      if (!t) { hl.style.opacity = '0'; return; }
+      place(); hl.style.opacity = '1';
+      if (window.__svHlLoop) return;
+      window.__svHlLoop = true;
+      const loop = () => { if (place()) requestAnimationFrame(loop); else window.__svHlLoop = false; };
+      requestAnimationFrame(loop);
+    },
+    // where to scroll so `el` and the block it heads are in view: null when they already are. Only as far as
+    // needed, and never so far that `el` goes above the top 12% (scrolling past what is being talked about).
+    need(el) {
+      const s = this.scrollerOf(el), top = s === this.doc() ? 0 : s.getBoundingClientRect().top, H = this.viewH(s);
+      window.__svScroller = s;
+      const r = el.getBoundingClientRect(), b = this.rectOf(this.section(el)) || r;
+      const lo = top + H * 0.12, hi = top + H * 0.92;
+      let dy;
+      if (r.top < lo) dy = Math.min(r.top, b.top) - lo;               // above: back up to it
+      else if (b.bottom > hi || r.bottom > hi) dy = Math.min(Math.max(b.bottom, r.bottom) - hi, r.top - lo);
+      else return null;                                                // already in view
+      return Math.abs(dy) < 24 ? null : s.scrollTop + dy;
+    },
     scrollTo(y, ms) { return new Promise(res => {
       const se = window.__svScroller || this.main(), y0 = se.scrollTop,
             y1 = Math.max(0, Math.min(this.range(se), y)), t0 = performance.now();
@@ -158,11 +238,27 @@ OVERLAY = r"""(() => {
         const s = this.main(); window.__svScroller = s;
         return what === 'top' ? 0 : what === 'bottom' ? this.range(s) : Number(what) * this.range(s);
       }
-      const want = String(what).toLowerCase().trim();
-      const pick = sel => [...document.querySelectorAll(sel)].find(el => (el.innerText || '').toLowerCase().trim().startsWith(want))
-        || [...document.querySelectorAll(sel)].find(el => (el.innerText || '').toLowerCase().includes(want));
-      const el = pick('h1,h2,h3,h4') || pick('section,article,p,li,a,button');
+      const el = this.labelled(what);
       return el ? this.targetFor(el) : null;
+    },
+    labelled(what) {
+      const want = String(what).toLowerCase().replace(/\s+/g, ' ').trim();
+      const txt = e => (e.innerText || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      const all = sel => [...document.querySelectorAll(sel)].filter(e => this.vis(e));
+      return all('h1,h2,h3,h4,h5,h6').find(e => txt(e).startsWith(want))
+        || all('legend,dt,th,label,p,li,a,button,span,div').find(e => txt(e).startsWith(want) && txt(e).length <= want.length + 40)
+        || all('h1,h2,h3,h4').find(e => txt(e).includes(want))
+        || all('section,article,p,li,a,button').find(e => txt(e).includes(want)) || null;
+    },
+    // a scroll step: {found, y (null: already in view, no scroll), mark (outline it after)}
+    scrollPlan(what) {
+      window.__svTarget = null;
+      if (['top', 'bottom'].includes(what) || (String(what).trim() !== '' && !isNaN(Number(what))))
+        return {found: true, y: this.targetY(what), mark: false};
+      const el = this.labelled(what);
+      if (!el) return {found: false};
+      window.__svTarget = el;
+      return {found: true, y: this.need(el), mark: true};
     },
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', add); else add();
@@ -174,7 +270,7 @@ SCROLL_S = 1.8                # an eased scroll, before the scene is fitted to i
 TYPE_MS = 85                  # per key
 GAP_MAX = 0.6                 # nothing happening for longer than this is cut down to it
 SPEED_MAX = 2.4
-VERSION = 6      # bump when a recording would come out differently, so saved website clips are made again
+VERSION = 7      # bump when a recording would come out differently, so saved website clips are made again
 # requests that never go out while recording: analytics and trackers (and anything but a plain page load)
 BLOCK = ("google-analytics.com", "googletagmanager.com", "doubleclick.net", "segment.io", "segment.com", "hotjar",
          "facebook.net", "mixpanel", "clarity.ms", "posthog", "amplitude", "intercom", "sentry.io", "fullstory")
@@ -364,12 +460,25 @@ class Recorder:
         self.mouse = (x, y)
 
     def _scroll(self, to) -> None:
-        y = self.page.evaluate("t => window.__sv.targetY(t)", str(to))
-        if y is None:
+        """Scroll to a heading or label only as far as it and its section need (not at all when they are already in
+        view), then outline it; top, bottom and a fraction scroll the page as before."""
+        p = self.page.evaluate("t => window.__sv.scrollPlan(t)", str(to))
+        if not p.get("found"):
             self.log(f"  scroll target not found: {to!r}")
             return
-        self.page.evaluate("([y, ms]) => window.__sv.scrollTo(y, ms)", [y, int(SCROLL_S * 1000)])
-        self.page.wait_for_timeout(SCROLL_S * 1000 + 300)
+        if p.get("y") is not None:
+            self.page.evaluate("([y, ms]) => window.__sv.scrollTo(y, ms)", [p["y"], int(SCROLL_S * 1000)])
+            self.page.wait_for_timeout(SCROLL_S * 1000 + 300)
+        if p.get("mark"):
+            self.page.evaluate("() => window.__sv.mark(window.__svTarget, 'block')")
+            self.page.wait_for_timeout(500)
+
+    def _mark(self, el, how: str = "self") -> None:
+        """Outline what the step is about (see OVERLAY mark)."""
+        try:
+            el.evaluate("(e, h) => window.__sv.mark(e, h)", how)
+        except Exception:
+            pass
 
     def _find(self, text: str, field: bool = False, wait: float = 0):
         """The first visible element showing `text` (for a field: by its placeholder, label or name), waiting up to
@@ -442,6 +551,7 @@ class Recorder:
             raise _Missing(f"  not on the page: {text!r}" + (f" in the row {row!r}" if row else ""))
         if not self._reach(el):
             return
+        self._mark(el, "self" if click else "auto")
         self.page.wait_for_timeout(450)
         if click:
             self._press()
@@ -476,6 +586,7 @@ class Recorder:
         if bool(el.evaluate("e => window.__sv.checked(e)")) == on:
             return
         if self._reach(el):
+            self._mark(el, "row")
             self.page.wait_for_timeout(300)
             self._press()
 
@@ -485,6 +596,7 @@ class Recorder:
             raise _Missing(f"  no field to type in: {into!r}")
         if not self._reach(el):
             return
+        self._mark(el)
         self.page.mouse.down()
         self.page.mouse.up()
         try:
@@ -507,6 +619,7 @@ class Recorder:
             self._miss(f"  typing into {into!r} failed: {type(e).__name__}")
 
     def _do(self, a: Dict) -> None:
+        self.page.evaluate("() => window.__sv && window.__sv.mark(null)")
         if a["do"] == "scroll":
             self._scroll(a.get("to", "bottom"))
         elif a["do"] in ("hover", "click"):
@@ -651,6 +764,7 @@ class Recorder:
             self.page.evaluate("() => window.__sv.ensure()")
             self.page.mouse.move(*self.mouse)
             self.page.wait_for_timeout(600)
+        self.page.evaluate("() => window.__sv && window.__sv.mark(null, 'self', true)")
         self._dir = os.path.join(self.work, "frames_" + os.path.splitext(os.path.basename(out))[0])
         shutil.rmtree(self._dir, ignore_errors=True)
         os.makedirs(self._dir)
