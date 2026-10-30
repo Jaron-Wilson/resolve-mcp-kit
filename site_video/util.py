@@ -103,6 +103,24 @@ def read_json(path: str, default=None):
         return default
 
 
+_LIVE: dict = {}
+
+
+def live(job_dir: str, jpeg: bytes, every: float = 0.8) -> None:
+    """The picture the job's browser shows right now, as <job>/live.jpg (at most every `every` seconds), so the
+    page can show it while the job works. Read-only for the viewer: nothing goes back to the browser."""
+    if not job_dir or time.time() - _LIVE.get(job_dir, 0) < every:
+        return
+    _LIVE[job_dir] = time.time()
+    path = os.path.join(job_dir, "live.jpg")
+    try:
+        with open(path + ".tmp", "wb") as f:
+            f.write(jpeg)
+        os.replace(path + ".tmp", path)
+    except OSError:                                  # being read at that moment (Windows): the next one goes
+        pass
+
+
 def write_json(path: str, data) -> None:
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:

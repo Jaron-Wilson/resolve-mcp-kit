@@ -22,7 +22,7 @@ from typing import Dict, List, Optional
 from urllib.parse import urljoin, urlparse
 
 from .crawl import _EXTRACT, _same_site, dismiss_consent
-from .util import SCALE, VIEW_H, VIEW_W
+from .util import SCALE, VIEW_H, VIEW_W, live
 
 MAX_PAGES = int(os.environ.get("SITE_VIDEO_EXPLORE_PAGES", "60"))
 BUDGET_S = float(os.environ.get("SITE_VIDEO_EXPLORE_SECONDS", "240"))
@@ -101,6 +101,8 @@ def _read(page, shots: str, n: int) -> Dict:
         try:
             page.screenshot(path=path, type="jpeg", quality=70)
             info["shot"] = os.path.basename(path)
+            with open(path, "rb") as f:
+                live(os.path.dirname(shots), f.read(), every=0)
         except Exception:
             pass
     return info

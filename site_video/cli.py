@@ -97,8 +97,9 @@ def main(argv=None):
         p.add_argument("--deliver", default="video",
                        help="comma list: video, script, voiceover, clips, timeline, resolve_project, package, or all")
         p.add_argument("--name", default="")
-        p.add_argument("--cursor", default="dot", choices=["dot", "arrow", "hand", "ring", "none"],
-                       help="the cursor on website scenes (ring: arrow with a highlight and a ripple on clicks)")
+        p.add_argument("--cursor", default="dot", choices=["auto", "dot", "arrow", "hand", "ring", "none"],
+                       help="the cursor on website scenes (auto: an arrow only in scenes that point, click or type; "
+                            "ring: arrow with a highlight and a ripple on clicks)")
         p.add_argument("--my-site", action="store_true",
                        help="your own site: the video may press buttons that save or create things (never delete, buy "
                             "or sign out). Sign in first with: site-video signin URL")
@@ -130,7 +131,7 @@ def main(argv=None):
     p = sub.add_parser("change", help="change a finished video in words, then make it again (only what changed)")
     p.add_argument("id")
     p.add_argument("change")
-    p.add_argument("--cursor", default="", choices=["", "dot", "arrow", "hand", "ring", "none"])
+    p.add_argument("--cursor", default="", choices=["", "auto", "dot", "arrow", "hand", "ring", "none"])
     p.add_argument("--dry-run", action="store_true", help="only show what would change")
     p.add_argument("--server", default=DEFAULT_SERVER)
     sub.add_parser("odysseus-mod", help="run as an Odysseus mod (started by Odysseus)")

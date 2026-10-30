@@ -20,6 +20,7 @@ POST /api/jobs/<id>/revise     {"plan", "cursor"} -> the job, queued again; only
 GET  /api/jobs/<id>/video      the finished MP4 (supports Range, so browsers can seek)
 GET  /api/jobs/<id>/files/<name> one of the job's deliverables (names are in job["files"])
 GET  /api/jobs/<id>/log        the job's log
+GET  /api/jobs/<id>/live.jpg   what the job's browser shows right now (while it explores or records)
 GET  /api/info                 voices, script models and editors this server offers
 
 Over HTTP a job's media must be uploads, or files inside the folders in SITE_VIDEO_MEDIA_DIRS (separated by the
@@ -257,6 +258,13 @@ def make_handler(q: Queue):
                     from urllib.parse import unquote
                     path = q.file_path(jid, unquote("/".join(parts[4:])))
                     return self._file(path) if path else self._send(404, {"error": "no such file"})
+                if len(parts) == 4 and method == "GET" and parts[3] == "live.jpg" and re.fullmatch(r"[\w-]+", jid):
+                    # what the job's browser shows now (explore and record write it), for the page's live view
+                    try:
+                        with open(os.path.join(q.jobs_dir, jid, "live.jpg"), "rb") as f:
+                            return self._send(200, f.read(), "image/jpeg")
+                    except OSError:
+                        return self._send(404, {"error": "nothing to show yet"})
                 if len(parts) == 4 and method == "GET" and parts[3] == "log":
                     try:
                         with open(os.path.join(q.jobs_dir, jid, "log.txt"), encoding="utf-8") as f:

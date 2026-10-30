@@ -62,6 +62,30 @@ def test_a_sign_in_from_the_browser_keeps_only_that_sites_cookies_and_storage(tm
         session.save_from_browser("https://ex.com", state)
 
 
+def test_the_cursor_moves_like_a_hand_not_a_straight_line():
+    import math
+    from site_video.record import human_path
+    pts = human_path(100, 100, 900, 500)                       # a long move
+    assert pts[-1][:2] == (900, 500)
+    secs = sum(p[2] for p in pts)
+    assert 0.35 <= secs <= 1.3
+    # it arcs: some point is well off the straight line between the ends
+    off = max(abs((500 - 100) * (x - 100) - (900 - 100) * (y - 100)) / math.hypot(800, 400) for x, y, _ in pts)
+    assert off > 15
+    # past 300 px it overshoots and comes back: some point is further along than the target
+    along = max(((x - 100) * 800 + (y - 100) * 400) / math.hypot(800, 400) for x, y, _ in pts)
+    assert along > math.hypot(800, 400) + 5
+    short = human_path(100, 100, 200, 120)
+    assert sum(p[2] for p in short) < secs                     # Fitts: a short hop is quicker
+    assert max(x for x, _, _ in short) <= 200.5                # and does not overshoot
+    assert human_path(100, 100, 900, 500) == pts               # the same move is drawn the same way
+
+
+def test_auto_is_a_cursor_choice():
+    from site_video import pipeline, record
+    assert pipeline._cursor("Auto") == "auto" and "auto" in record.CURSORS
+
+
 def test_a_brief_is_followed_not_answered_and_the_json_ask_comes_last():
     brief = "Help me draft an outline for a short promo video. Start at https://ex.com/lot-value and paste my sets."
     p = plan.prompt(CRAWL, 60, brief, changes=True)

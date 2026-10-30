@@ -21,7 +21,7 @@ import time
 from typing import Dict, List
 
 from .crawl import open_page
-from .util import FPS, HANDLE, HEIGHT, WIDTH, ffmpeg, frames
+from .util import FPS, HANDLE, HEIGHT, WIDTH, ffmpeg, frames, live
 
 # added to every page: the cursor, hidden scrollbars, and eased scrolling of whichever panel holds the content
 OVERLAY = r"""(() => {
@@ -46,7 +46,7 @@ OVERLAY = r"""(() => {
     const arrow = '<svg viewBox="0 0 24 24" width="24" height="24" style="margin:-2px 0 0 -4px"><path d="M4 2l15 11-6.5 1.2L16 21l-3 1.4-3.6-6.9L4 19z" fill="#fff" stroke="#111" stroke-width="1.4" stroke-linejoin="round"/></svg>';
     const hand = '<svg viewBox="0 0 24 24" width="26" height="26" style="margin:-2px 0 0 -9px"><path d="M9 11V4.5a1.5 1.5 0 0 1 3 0V10h.5V8.5a1.5 1.5 0 0 1 3 0V10h.5V9.5a1.5 1.5 0 0 1 3 0V15c0 3.5-2.3 6-5.7 6H12c-2 0-3.3-.8-4.5-2.4L4.6 14.5a1.5 1.5 0 0 1 2.3-1.9L9 14.6z" fill="#fff" stroke="#111" stroke-width="1.3" stroke-linejoin="round"/></svg>';
     cur.innerHTML = look === 'dot' ? '<div class="d"></div>' : (look === 'ring' ? '<div class="halo"></div>' : '') + (look === 'hand' ? hand : arrow);
-    if (look === 'none') cur.style.display = 'none';
+    if (look === 'none' || (look === 'auto' && sessionStorage.getItem('__svCur') !== '1')) cur.style.display = 'none';
     document.documentElement.appendChild(cur);
     document.addEventListener('mousemove', e => { cur.style.transform = `translate(${e.clientX}px,${e.clientY}px)`; }, true);
     document.addEventListener('mousedown', e => { cur.classList.add('down');
@@ -57,6 +57,8 @@ OVERLAY = r"""(() => {
   };
   window.__sv = {
     ensure: add,
+    cursor(on) { try { sessionStorage.setItem('__svCur', on ? '1' : '0'); } catch (e) {}
+      add(); const c = document.getElementById('__sv_cur'); if (c) c.style.display = on ? '' : 'none'; },
     // Many app-like sites scroll an inner panel, not the page: scrolling goes to whichever element holds the target
     // (or, for top/bottom/a fraction, the one with the most to scroll), remembered in __svScroller for scrollTo.
     doc() { return document.scrollingElement || document.documentElement; },
@@ -103,12 +105,13 @@ OVERLAY = r"""(() => {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', add); else add();
 })()"""
 
-CURSORS = ("dot", "arrow", "hand", "ring", "none")  # dot: a brand-colored dot; ring: an arrow with a highlight
+CURSORS = ("auto", "dot", "arrow", "hand", "ring", "none")  # dot: a brand-colored dot; ring: an arrow with a highlight
+POINTING = ("hover", "click", "type")   # auto: a scene with one of these shows an arrow; one that only scrolls, none
 SCROLL_S = 1.8                # an eased scroll, before the scene is fitted to its length
 TYPE_MS = 85                  # per key
 GAP_MAX = 0.6                 # nothing happening for longer than this is cut down to it
 SPEED_MAX = 2.4
-VERSION = 4      # bump when a recording would come out differently, so saved website clips are made again
+VERSION = 5      # bump when a recording would come out differently, so saved website clips are made again
 # requests that never go out while recording: analytics and trackers (and anything but a plain page load)
 BLOCK = ("google-analytics.com", "googletagmanager.com", "doubleclick.net", "segment.io", "segment.com", "hotjar",
          "facebook.net", "mixpanel", "clarity.ms", "posthog", "amplitude", "intercom", "sentry.io", "fullstory")
@@ -128,13 +131,62 @@ def _guard(route, changes: bool = False):
     return route.continue_()
 
 
+
+def human_path(x0: float, y0: float, x1: float, y1: float, seconds: float = None, size: float = 40, fps: int = 60):
+    """The points a hand moves a mouse through from (x0, y0) to (x1, y1), as [(x, y, seconds to wait), ...].
+
+    - time: Fitts's law, T = 0.12 + 0.11 * log2(distance / size + 1) seconds, a little longer for far or small targets
+    - speed: minimum-jerk, s(k) = 10k^3 - 15k^4 + 6k^5, the smooth start and stop of a real arm
+    - curve: a quadratic Bezier bent sideways by 4 to 12% of the distance (the wrist pivots, so paths arc)
+    - wobble: two slow sines, at most about 2 px, fading out at both ends
+    - overshoot: past 300 px it lands 1.5 to 3% beyond the target, then a short correction back
+    Seeded by the two points, so the same move is drawn the same way every time."""
+    import math
+    import random
+    r = random.Random(f"{x0:.0f},{y0:.0f},{x1:.0f},{y1:.0f}")
+    dx, dy = x1 - x0, y1 - y0
+    dist = math.hypot(dx, dy)
+    if dist < 2:
+        return [(x1, y1, 0.05)]
+    if seconds is None:
+        seconds = 0.12 + 0.11 * math.log2(dist / max(size, 8) + 1)
+        seconds = min(1.3, max(0.35, seconds * r.uniform(0.9, 1.15)))
+    ux, uy = dx / dist, dy / dist                     # along the move, and across it
+    nx, ny = -uy, ux
+    pts = []
+
+    def leg(ax, ay, bx, by, secs, bend, wob):
+        d = math.hypot(bx - ax, by - ay)
+        cx, cy = (ax + bx) / 2 + nx * d * bend, (ay + by) / 2 + ny * d * bend
+        ph1, ph2 = r.uniform(0, 6.3), r.uniform(0, 6.3)
+        steps = max(6, int(secs * fps))
+        for i in range(1, steps + 1):
+            k = i / steps
+            s = 10 * k ** 3 - 15 * k ** 4 + 6 * k ** 5
+            px = (1 - s) ** 2 * ax + 2 * (1 - s) * s * cx + s * s * bx
+            py = (1 - s) ** 2 * ay + 2 * (1 - s) * s * cy + s * s * by
+            w = wob * math.sin(math.pi * k) * (math.sin(2 * math.pi * 1.3 * k + ph1) + 0.5 * math.sin(2 * math.pi * 3.1 * k + ph2))
+            pts.append((px + nx * w, py + ny * w, secs / steps))
+
+    bend = r.choice((-1, 1)) * r.uniform(0.04, 0.12)
+    wob = min(2.0, dist * 0.004)
+    if dist > 300:
+        over = dist * r.uniform(0.015, 0.03)
+        ox, oy = x1 + ux * over + nx * r.uniform(-1, 1) * over * 0.3, y1 + uy * over + ny * r.uniform(-1, 1) * over * 0.3
+        leg(x0, y0, ox, oy, seconds * 0.82, bend, wob)
+        leg(ox, oy, x1, y1, seconds * 0.18, 0, 0)
+    else:
+        leg(x0, y0, x1, y1, seconds, bend, wob)
+    pts[-1] = (x1, y1, pts[-1][2])
+    return pts
+
 class Recorder:
     """One browser for a job; scenes on the same URL continue where the last one left off."""
 
     def __init__(self, work: str, log=print, cursor: str = "dot", color: str = "#2f6fed", zoom: float = 1.0,
                  session: str = None, changes: bool = False):
         from playwright.sync_api import sync_playwright
-        self.work, self.log = work, log
+        self.work, self.log, self.cursor = work, log, cursor
         self._pw = sync_playwright().start()
         self.browser = self._pw.chromium.launch()
         # zoom > 1: a smaller page drawn at a higher pixel ratio, so the frames are still WIDTH x HEIGHT
@@ -171,9 +223,11 @@ class Recorder:
         try:
             if self._dir is not None:
                 path = os.path.join(self._dir, f"{len(self._frames):06d}.jpg")
+                data = base64.b64decode(f["data"])
                 with open(path, "wb") as out:
-                    out.write(base64.b64decode(f["data"]))
+                    out.write(data)
                 self._frames.append((f["metadata"]["timestamp"], path))
+                live(os.path.dirname(os.path.abspath(self.work)), data)
         finally:
             try:
                 self.cdp.send("Page.screencastFrameAck", {"sessionId": f["sessionId"]})
@@ -211,15 +265,15 @@ class Recorder:
         return speed
 
     # ── actions ──
-    def _glide(self, x: float, y: float, seconds: float) -> None:
-        """Move the cursor along an eased path over `seconds`."""
+    def _glide(self, x: float, y: float, seconds: float = None, size: float = 40) -> None:
+        """Move the cursor to (x, y) the way a hand does (human_path): a slight curve, a smooth start and stop, a
+        little wobble, and on long moves a small overshoot that is corrected. Without `seconds` the move takes as long
+        as Fitts's law says for that distance and a target `size` px wide."""
         x0, y0 = self.mouse
-        steps = max(8, int(seconds * 40))
-        for i in range(1, steps + 1):
-            k = i / steps
-            e = 4 * k ** 3 if k < .5 else 1 - (-2 * k + 2) ** 3 / 2
-            self.page.mouse.move(x0 + (x - x0) * e, y0 + (y - y0) * e)
-            self.page.wait_for_timeout(seconds * 1000 / steps)
+        path = human_path(x0, y0, x, y, seconds, size)
+        for px, py, wait in path:
+            self.page.mouse.move(px, py)
+            self.page.wait_for_timeout(wait * 1000)
         self.mouse = (x, y)
 
     def _scroll(self, to) -> None:
@@ -257,7 +311,12 @@ class Recorder:
             self.page.evaluate("([y, ms]) => window.__sv.scrollTo(y, ms)", [y, 900])
             box = el.bounding_box()
         if box:
-            self._glide(box["x"] + min(box["width"] * 0.5, 160), box["y"] + box["height"] * 0.55, 0.8)
+            # near the middle, not dead center: people land somewhere inside the target
+            import random
+            r = random.Random(f'{box["x"]:.0f},{box["y"]:.0f}')
+            w, h = box["width"], box["height"]
+            self._glide(box["x"] + min(w * 0.5, 160) + r.uniform(-1, 1) * min(w * 0.15, 18),
+                        box["y"] + h * 0.55 + r.uniform(-1, 1) * h * 0.12, size=min(w, h) or 40)
         return box
 
     def _point_at(self, text: str, click: bool) -> None:
@@ -342,6 +401,10 @@ class Recorder:
         os.makedirs(self._dir)
         self._frames = []
         self.misses = []
+        if self.cursor == "auto":
+            # a cursor only where the scene points at, clicks or types into something
+            show = any(str(a.get("do")) in POINTING for a in scene.get("actions") or [])
+            self.page.evaluate("on => window.__sv.cursor(on)", show)
         self.cdp.send("Page.startScreencast", {"format": "jpeg", "quality": 92, "maxWidth": WIDTH, "maxHeight": HEIGHT})
         # nudge the cursor so the screencast sends a first frame even on a page that is already still
         self.page.mouse.move(self.mouse[0] + 1, self.mouse[1])

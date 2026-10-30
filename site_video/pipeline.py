@@ -17,7 +17,7 @@ from .util import Log, is_auto, parse_length, read_json, write_json
 
 EDITORS = ("auto", "resolve", "ffmpeg")
 MAX_MEDIA = 12
-CURSORS = ("dot", "arrow", "hand", "ring", "none")    # the cursor drawn on website scenes (record.py)
+CURSORS = ("auto", "dot", "arrow", "hand", "ring", "none")    # the cursor drawn on website scenes (record.py)
 CARDS_VERSION = 1     # bump when the cards or captions would be drawn differently
 
 
