@@ -253,6 +253,23 @@ python -m site_video make --video demo.mp4 --note-for "the app demo" --video tal
 python -m site_video make https://example.com --video demo.mp4 --video promo.mp4 --length 5min
 ```
 
+### Changing a video
+
+A finished (or failed) video can be changed and made again: on the page, press **Change** on the job.
+
+- **Describe the change** in words ("in scene 3, point at the Pro plan instead", "make the intro shorter", "swap scenes 4
+  and 5") and press **Apply to the script**: the script model makes the change and lists what differs, for you to check.
+- **Or edit the script yourself**: each scene's caption, narration, page and steps (scroll to / hover / click / pause,
+  with the page's headings and buttons to pick from), your videos' times and sound, the order, and the cursor.
+- **Redo the video**: only the scenes that changed are recorded, cut or voiced again, so a one-scene fix takes about a
+  minute. The old script is kept as `plan.<n>.json`.
+
+The same from a terminal, `python -m site_video change <id> "point at the Pro plan in scene 3" [--dry-run]`, from the
+HTTP API (`GET /api/jobs/<id>/plan`, `POST .../suggest`, `POST .../revise`), and from agents (`edit_site_video`).
+
+The cursor on website scenes is chosen per video (`--cursor`, the page's Cursor menu, or `cursor` in the API): `arrow`
+(default), `hand`, `ring` (the arrow with a highlight, and a ripple on clicks) or `none`.
+
 ### Deliverables
 
 Each video can hand back more than the MP4 (`--deliver`, the page's Deliverables row, or `deliverables` in the API):
@@ -268,6 +285,8 @@ Each video can hand back more than the MP4 (`--deliver`, the page's Deliverables
 | `package` | One zip with all of the above and a README on importing and relinking |
 
 In Resolve, each video is its own project in a "Site videos" project folder, so its `.drp` holds only that video.
+If a project is already called "Site videos" (earlier versions kept every video in one such project), Resolve will
+not make a folder with that name, so the folder is "Site videos projects" instead.
 
 ### A queue (several videos, 2 at a time)
 
@@ -302,6 +321,7 @@ turn "go through this site and make a 5 minute video, make sure you show X" into
 - The Resolve edit runs on the computer with Resolve and switches it to the "Site videos" project for the edit,
   opening your project again afterwards. Developed against Resolve Studio 21.1 on Windows; macOS and Linux are
   untested.
+- When the queue opens Resolve itself, it closes it again after the edit; a Resolve you opened is left open.
 - Resolve 21 opens on its Project Manager screen, and while that screen is up, scripting cannot open or create
   projects. When the queue opens Resolve itself (`SITE_VIDEO_START_RESOLVE`) it uses `-nogui` (Studio), which has
   no such screen; if Resolve is already open on the Project Manager, open any project first.

@@ -54,7 +54,8 @@ def register(mcp):
     @mcp.tool()
     def make_site_video(url: str = "", length: str = "auto", notes: str = "auto", voice: str = "",
                         editor: str = "auto", name: str = "", model: str = "",
-                        deliverables: List[str] = (), videos: List[Dict[str, str]] = ()) -> Dict[str, Any]:
+                        deliverables: List[str] = (), videos: List[Dict[str, str]] = (),
+                        cursor: str = "arrow") -> Dict[str, Any]:
         """Queue a promo video of a website, of the user's own videos, or of both. It reads the site, watches the
         videos, writes a script, records the site in a browser, adds a voiceover, and edits and renders it in DaVinci
         Resolve (ffmpeg if Resolve is closed). Takes a few minutes; returns a job id at once, then check it with
@@ -70,13 +71,28 @@ def register(mcp):
         the script (one of the queue's models, see /api/info), or "" for its default. deliverables: what to hand
         back besides the video: script, voiceover, clips, timeline (.drt/.fcpxml/.edl), resolve_project (.drp),
         package (all of it zipped)."""
-        body = {"url": url or "", "media": list(videos or []), "length": length or "auto", "notes": notes or "auto", "editor": editor or "auto",
+        body = {"url": url or "", "media": list(videos or []), "cursor": cursor or "arrow", "length": length or "auto", "notes": notes or "auto", "editor": editor or "auto",
                 "name": name, "model": model or "", "deliverables": list(deliverables) or ["video"]}
         if voice:
             body["voice"] = voice
         else:
             body["voice"] = _call("GET", "/api/info").get("default_voice", "none")
         return _short(_call("POST", "/api/jobs", body))
+
+    @mcp.tool()
+    def edit_site_video(job_id: str, change: str, cursor: str = "") -> Dict[str, Any]:
+        """Change a finished (or failed) site video and make it again. `change` is the person's words: "in scene 3
+        point the cursor at the Pro plan instead", "make the intro shorter", "swap scenes 4 and 5". The script model
+        applies it to the video's script; only the scenes that change are recorded again. cursor: arrow, hand, ring
+        or none, only if they asked for a different cursor. Returns the job (with "changes"); follow it with
+        site_video_status."""
+        got = _call("POST", f"/api/jobs/{job_id}/suggest", {"change": change})
+        body = {"plan": got["plan"]}
+        if cursor:
+            body["cursor"] = cursor
+        out = _short(_call("POST", f"/api/jobs/{job_id}/revise", body))
+        out["changes"] = got["changes"]
+        return out
 
     @mcp.tool()
     def site_video_status(job_id: str) -> Dict[str, Any]:

@@ -10,7 +10,7 @@ main{max-width:1100px;margin:0 auto;padding:20px 16px 60px}h1{font-size:21px;mar
 label{display:block;font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em;margin:0 0 6px}
 input,select,textarea{font:inherit;color:var(--txt);background:#191c21;border:1px solid var(--line);border-radius:9px;padding:9px 11px;width:100%}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}textarea{resize:vertical;min-height:64px}
-.row{display:grid;grid-template-columns:2fr 1.6fr .9fr;gap:12px;margin-bottom:12px}.row2{display:grid;grid-template-columns:1fr 1fr 1.3fr 1fr;gap:12px;margin-top:12px}
+.row{display:grid;grid-template-columns:2fr 1.6fr .9fr;gap:12px;margin-bottom:12px}.row2{display:grid;grid-template-columns:1fr 1fr 1.3fr 1fr 1fr;gap:12px;margin-top:12px}
 @media(max-width:720px){.row,.row2{grid-template-columns:1fr}}
 .seg{display:flex;gap:4px}.seg button{flex:1;min-width:0;padding:9px 4px}
 button{font:inherit;font-size:13px;color:var(--txt);background:#262a30;border:1px solid var(--line);border-radius:8px;padding:7px 11px;cursor:pointer;white-space:nowrap}
@@ -36,7 +36,13 @@ pre{white-space:pre-wrap;font-size:12px;color:var(--dim);max-height:260px;overfl
 .vids{border:1px dashed var(--line);border-radius:10px;padding:12px;margin-bottom:12px}.vids.drag{border-color:var(--acc)}
 .vid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,2fr) auto;gap:8px;align-items:center;margin-bottom:8px}
 .vid .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.vid .n small{color:var(--dim);margin-left:6px}
-@media(max-width:720px){.vid{grid-template-columns:1fr}}.hint{color:var(--dim);font-size:13px;margin:6px 0 0}
+@media(max-width:720px){.vid{grid-template-columns:1fr}}
+.chg{border-top:1px solid var(--line);margin-top:12px;padding-top:4px}.chg label{margin-top:12px}.chg textarea{min-height:46px;margin-top:6px}
+.chg>input{margin-top:6px}.sc{border:1px solid var(--line);border-radius:10px;padding:10px;margin:8px 0;background:#191c21}
+.sh{display:flex;gap:6px;align-items:center}.sh b{white-space:nowrap}.sh input{flex:1;min-width:0}
+.sr{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}.sr input{flex:1;min-width:140px}.sr input[type=number]{flex:0 0 90px;min-width:0}
+.sr select{width:auto;max-width:100%}.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}@media(max-width:720px){.g3{grid-template-columns:1fr}}
+.diff{color:var(--ok);font-size:13px;margin:8px 0;padding-left:18px}.hint{color:var(--dim);font-size:13px;margin:6px 0 0}
 </style></head><body><main>
 <h1>Site videos</h1><p class="sub">Give it a link, your own videos, or both. It writes a script, records the site in a browser, picks the best moments of your videos, adds a voiceover and edits a promo video.</p>
 <div class="card">
@@ -59,6 +65,7 @@ pre{white-space:pre-wrap;font-size:12px;color:var(--dim);max-height:260px;overfl
     <div><label for="voice">Voice</label><select id="voice"></select></div>
     <div><label for="vname">Voice name or id</label><input id="vname" placeholder="optional"></div>
     <div><label for="model">Script model</label><input id="model" list="models" placeholder="default" autocomplete="off"><datalist id="models"></datalist></div>
+    <div><label for="cursor">Cursor</label><select id="cursor"><option value="arrow">Arrow</option><option value="hand">Pointing hand</option><option value="ring">Arrow with highlight</option><option value="none">No cursor</option></select></div>
     <div><label for="editor">Editor</label><select id="editor"><option value="auto">Auto (Resolve if it is open)</option><option value="resolve">DaVinci Resolve</option><option value="ffmpeg">Plain ffmpeg</option></select></div>
   </div>
   <label style="margin-top:14px">Deliverables</label><div class="chips" id="deliv"></div>
@@ -119,7 +126,7 @@ function voiceHint(){const v=$('#voice').value;$('#vname').disabled=(v==='none'|
 $('#voice').onchange=()=>{localStorage.setItem('svVoice',$('#voice').value);voiceHint()};
 $('#go').onclick=async()=>{const v=$('#voice').value,n=$('#vname').value.trim()||(v==='elevenlabs'?INFO.elevenlabs_voice:v==='openai'?INFO.openai_voice:'');
   const body={url:SRC==='videos'?'':$('#url').value.trim(),length:$('#lenc').value.trim()||LEN,notes:$('#notes').value.trim()||'auto',
-    voice:(v==='elevenlabs'||v==='openai')&&n?v+':'+n:v,editor:$('#editor').value,model:$('#model').value.trim(),deliverables:[...PICK]};
+    voice:(v==='elevenlabs'||v==='openai')&&n?v+':'+n:v,editor:$('#editor').value,cursor:$('#cursor').value,model:$('#model').value.trim(),deliverables:[...PICK]};
   if(SRC!=='site'&&!VIDS.length){$('#msg').className='msg bad';$('#msg').textContent='Add your videos first.';return}
   if(SRC!=='videos'&&!body.url){$('#msg').className='msg bad';$('#msg').textContent='Give the website link.';return}
   $('#go').disabled=true;$('#msg').className='msg';$('#msg').textContent='adding...';
@@ -128,7 +135,66 @@ $('#go').onclick=async()=>{const v=$('#voice').value,n=$('#vname').value.trim()|
     const j=await api('api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     $('#msg').textContent='Queued.';$('#url').value='';$('#notes').value='';VIDS=[];srcDraw();load()}
   catch(e){$('#msg').className='msg bad';$('#msg').textContent=e.message}finally{$('#go').disabled=false}};
-const OPEN={};
+const OPEN={},EDIT={};
+const CUR={arrow:'arrow',hand:'pointing hand',ring:'arrow with highlight',none:'none'};
+const pathGet=(o,k)=>k.split('.').reduce((x,p)=>x==null?x:x[/^[0-9]+$/.test(p)?+p:p],o);
+function pathSet(o,k,v){const ps=k.split('.');const last=ps.pop();const t=pathGet(o,ps.join('.'))??o;t[/^[0-9]+$/.test(last)?+last:last]=v}
+async function openChange(id){if(!EDIT[id]){const d=await api(`api/jobs/${id}/plan`);
+    EDIT[id]={plan:d.plan,targets:d.targets,cursor:d.cursor,cursors:d.cursors,changes:null,ask:'',msg:''}}
+  OPEN[id]='change';load()}
+function chgHtml(id){const E=EDIT[id];if(!E)return '<p class="meta">loading the script...</p>';
+  const p=E.plan,pages=E.targets.pages||[],vids=E.targets.videos||[];
+  const dls=pages.map((pg,i)=>`<datalist id="dl-${id}-${i}">${[...pg.headings,...pg.buttons].map(t=>`<option value="${esc(t)}">`).join('')}</datalist>`).join('');
+  const scenes=p.scenes.map((s,i)=>{const vid='video' in s,last=p.scenes.length-1;
+    let body;
+    if(vid){body=`<div class="sr"><select data-k="s.${i}.video">${vids.map(v=>`<option ${v.file===s.video?'selected':''}>${esc(v.file)}</option>`).join('')}</select>
+      from <input type="number" step="0.1" min="0" data-n="1" data-k="s.${i}.from" value="${s.from}"> to <input type="number" step="0.1" min="0" data-n="1" data-k="s.${i}.to" value="${s.to}"> s
+      <select data-k="s.${i}.sound"><option value="voice" ${s.sound!=='keep'?'selected':''}>Narration over it</option><option value="keep" ${s.sound==='keep'?'selected':''}>Its own sound</option></select></div>`}
+    else{const pi=Math.max(0,pages.findIndex(pg=>pg.url===s.url));
+      body=`<div class="sr"><select data-k="s.${i}.url">${pages.map(pg=>`<option ${pg.url===s.url?'selected':''}>${esc(pg.url)}</option>`).join('')}</select>
+        <input type="number" step="0.5" min="4" data-n="1" data-k="s.${i}.seconds" value="${s.seconds}" title="seconds"> s</div>`
+        +(s.actions||[]).map((a,k)=>`<div class="sr"><select data-k="s.${i}.actions.${k}.do">${['scroll','hover','click','pause'].map(o=>`<option ${o===a.do?'selected':''}>${o}</option>`).join('')}</select>`
+          +(a.do==='pause'?`<input type="number" step="0.5" min="0.5" data-n="1" data-k="s.${i}.actions.${k}.seconds" value="${a.seconds||1}"> s`
+            :`<input list="dl-${id}-${pi}" data-k="s.${i}.actions.${k}.${a.do==='scroll'?'to':'text'}" value="${esc(a.do==='scroll'?a.to:a.text)}" placeholder="${a.do==='scroll'?'a heading, top, bottom or 0 to 1':'the text to point at'}">`)
+          +`<button data-c="adel" data-i="${i}" data-j="${k}" title="remove this step">&times;</button></div>`).join('')
+        +`<div class="sr"><button data-c="aadd" data-i="${i}">+ step</button></div>`}
+    const keep=vid&&s.sound==='keep';
+    return `<div class="sc"><div class="sh"><b>${i+1}.</b><input data-k="s.${i}.caption" value="${esc(s.caption)}" placeholder="caption">
+      <button data-c="up" data-i="${i}" ${i?'':'disabled'} title="move up">&uarr;</button><button data-c="down" data-i="${i}" ${i<last?'':'disabled'} title="move down">&darr;</button><button data-c="del" data-i="${i}">Remove</button></div>
+      ${body}<textarea data-k="s.${i}.narration" placeholder="${keep?'its own sound plays here':'narration'}" ${keep?'disabled':''}>${esc(s.narration)}</textarea></div>`}).join('');
+  return dls+`<div class="chg"><label>Describe the change</label>
+    <textarea class="ask" placeholder="e.g. In scene 3, point at the Pro plan instead of Sign up. Make the intro shorter.">${esc(E.ask)}</textarea>
+    <div class="btns"><button data-c="suggest">Apply to the script</button><span class="msg">${esc(E.msg)}</span></div>
+    ${E.changes?`<ul class="diff">${E.changes.map(c=>`<li>${esc(c)}</li>`).join('')}</ul>`:''}
+    <label>Or edit the script yourself</label>
+    <div class="g3"><input data-k="title" value="${esc(p.title)}" placeholder="title"><input data-k="tagline" value="${esc(p.tagline)}" placeholder="tagline">
+      <select data-k="__cursor">${E.cursors.map(c=>`<option value="${c}" ${c===E.cursor?'selected':''}>Cursor: ${CUR[c]||c}</option>`).join('')}</select></div>
+    <textarea data-k="intro.narration" placeholder="intro narration">${esc(p.intro.narration)}</textarea>${scenes}
+    <div class="btns">${pages.length?'<button data-c="addsite">+ website scene</button>':''}${vids.length?'<button data-c="addvid">+ video scene</button>':''}</div>
+    <textarea data-k="outro.narration" placeholder="outro narration">${esc(p.outro.narration)}</textarea>
+    <input data-k="outro.call_to_action" value="${esc(p.outro.call_to_action)}" placeholder="call to action">
+    <div class="actions"><button class="pri" data-c="redo">Redo the video</button><button data-c="close">Close</button>
+      <span class="msg">Only the scenes you changed are recorded again.</span></div></div>`}
+const drawChange=id=>{const b=document.querySelector(`.chgbox[data-id="${id}"]`);if(b)b.innerHTML=chgHtml(id)};
+async function chgClick(b){const id=b.closest('.chgbox').dataset.id,E=EDIT[id],c=b.dataset.c,i=+b.dataset.i,S=E&&E.plan.scenes;
+  if(!E)return;const pages=E.targets.pages||[],vids=E.targets.videos||[];
+  if(c==='up'&&i>0)S.splice(i-1,0,S.splice(i,1)[0]);
+  if(c==='down'&&i<S.length-1)S.splice(i+1,0,S.splice(i,1)[0]);
+  if(c==='del')S.splice(i,1);
+  if(c==='aadd')(S[i].actions=S[i].actions||[]).push({do:'hover',text:''});
+  if(c==='adel')S[i].actions.splice(+b.dataset.j,1);
+  if(c==='addsite')S.push({url:pages[0].url,caption:'',narration:'',seconds:8,actions:[{do:'scroll',to:'top'}]});
+  if(c==='addvid')S.push({video:vids[0].file,from:0,to:Math.min(10,vids[0].seconds),sound:'voice',caption:'',narration:''});
+  if(c==='close'){delete EDIT[id];OPEN[id]=null;load();return}
+  if(c==='suggest'){if(!E.ask.trim()){E.msg='Say what to change first.';drawChange(id);return}
+    E.msg='Asking the script model (this can take a minute or two)...';drawChange(id);
+    try{const d=await api(`api/jobs/${id}/suggest`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({change:E.ask})});
+      E.plan=d.plan;E.changes=d.changes;E.msg='Done. Check it below, then press Redo the video.'}
+    catch(err){E.msg=err.message}}
+  if(c==='redo'){b.disabled=true;try{await api(`api/jobs/${id}/revise`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({plan:E.plan,cursor:E.cursor})});delete EDIT[id];OPEN[id]=null;load();return}
+    catch(err){E.msg=err.message;b.disabled=false}}
+  drawChange(id)}
 const ago=t=>{if(!t)return'';const s=(Date.now()/1000-t);return s<60?Math.round(s)+'s ago':s<3600?Math.round(s/60)+'m ago':s<86400?Math.round(s/3600)+'h ago':new Date(t*1000).toLocaleDateString()};
 const dur=s=>s?Math.floor(s/60)+':'+String(Math.round(s%60)).padStart(2,'0'):'';
 async function load(){let js;try{js=await api('api/jobs')}catch(e){return}
@@ -137,19 +203,28 @@ async function load(){let js;try{js=await api('api/jobs')}catch(e){return}
     const len=r.length==='auto'?'auto length':dur(r.length);
     const mine=(r.media||[]).map(m=>m.file.split(/[\\/]/).pop()),what=[r.url,mine.length?mine.length+' of your videos ('+mine.join(', ')+')':''].filter(Boolean).join(' + ');
     return `<div class="job" data-id="${j.id}"><div class="top"><span class="pill ${j.status}">${j.status}</span><span class="u" title="${esc(what)}">${esc(what)}</span><span class="meta" style="margin:0">${ago(j.created)}</span></div>
-      <div class="meta">${esc(len)} &middot; voice ${esc(r.voice)}${r.model?' &middot; model '+esc(r.model):''} &middot;${r.notes&&r.notes!=='auto'?'&ldquo;'+esc(r.notes.slice(0,140))+'&rdquo;':'auto'}${j.status==='done'?' &middot; '+dur(j.seconds)+' made with '+esc(j.editor):''}${live?' &middot; '+esc(j.step||''):''}</div>
+      <div class="meta">${esc(len)} &middot; voice ${esc(r.voice)}${r.model?' &middot; model '+esc(r.model):''} &middot;${r.notes&&r.notes!=='auto'?'&ldquo;'+esc(r.notes.slice(0,140))+'&rdquo;':'auto'}${j.status==='done'?' &middot; '+dur(j.seconds)+' made with '+esc(j.editor):''}${j.revisions?' &middot; changed '+j.revisions+'&times;':''}${live?' &middot; '+esc(j.step||''):''}</div>
       ${live?`<div class="bar"><i style="width:${Math.round((j.progress||0)*100)}%"></i></div>`:''}
       ${j.error?`<div class="err">${esc(j.error)}</div>`:''}
       <div class="btns">${j.status==='done'?`<button data-a="watch">Watch</button><a href="api/jobs/${j.id}/video" download><button>Download video</button></a>`
         +((j.files||[]).some(f=>f.kind==='package')?`<a href="api/jobs/${j.id}/files/${encodeURIComponent((j.files.find(f=>f.kind==='package')||{}).name||'')}" download><button>Download all (zip)</button></a>`:'')
         +((j.files||[]).length>1?'<button data-a="files">Files</button>':''):''}
-        ${live?'<button data-a="cancel">Cancel</button>':''}${['failed','cancelled'].includes(j.status)?'<button data-a="retry">Try again</button>':''}${live?'':'<button data-a="remove">Remove</button>'}
+        ${live?'<button data-a="cancel">Cancel</button>':''}${['failed','cancelled'].includes(j.status)?'<button data-a="retry">Try again</button>':''}${['done','failed'].includes(j.status)?'<button data-a="change">Change</button>':''}${live?'':'<button data-a="remove">Remove</button>'}
         <button data-a="log">Log</button></div>
+      ${OPEN[j.id]==='change'?`<div class="chgbox" data-id="${j.id}">${chgHtml(j.id)}</div>`:''}
       ${OPEN[j.id]==='watch'?`<video controls src="api/jobs/${j.id}/video"></video>`:''}${OPEN[j.id]==='files'?files(j):''}${OPEN[j.id]==='log'?`<pre data-log="${j.id}">loading...</pre>`:''}</div>`}).join('');
   document.querySelectorAll('pre[data-log]').forEach(async p=>{try{p.textContent=await (await fetch('api/jobs/'+p.dataset.log+'/log')).text()||'(empty)'}catch(e){}})}
-$('#jobs').onclick=async e=>{const b=e.target.closest('button[data-a]');if(!b)return;const id=b.closest('.job').dataset.id,a=b.dataset.a;
+$('#jobs').addEventListener('input',e=>{const el=e.target,box=el.closest('.chgbox');if(!box)return;const E=EDIT[box.dataset.id];if(!E)return;
+  if(el.classList.contains('ask')){E.ask=el.value;return}const k=el.dataset.k;if(!k)return;
+  if(k==='__cursor'){E.cursor=el.value;return}pathSet(E.plan,k,el.dataset.n?parseFloat(el.value)||0:el.value)});
+$('#jobs').addEventListener('change',e=>{const el=e.target,box=el.closest('.chgbox');if(!box||el.tagName!=='SELECT')return;const E=EDIT[box.dataset.id],k=el.dataset.k||'';
+  if(k.endsWith('.do')){const a=pathGet(E.plan,k.slice(0,-3));a.to=a.to||a.text||'';a.text=a.text||a.to||''}
+  drawChange(box.dataset.id)});
+$('#jobs').onclick=async e=>{const cb=e.target.closest('.chgbox button[data-c]');if(cb){chgClick(cb);return}
+  const b=e.target.closest('button[data-a]');if(!b)return;const id=b.closest('.job').dataset.id,a=b.dataset.a;
+  if(a==='change'){if(OPEN[id]==='change'){delete EDIT[id];OPEN[id]=null;load()}else openChange(id).catch(err=>alert(err.message));return}
   if(a==='watch'||a==='log'||a==='files'){OPEN[id]=OPEN[id]===a?null:a;load();return}
   if(a==='remove'&&!confirm('Remove this video from the queue and delete its files?'))return;
   b.disabled=true;try{await api(`api/jobs/${id}/${a}`,{method:'POST'})}catch(err){alert(err.message)}load()};
-srcDraw();info();load();setInterval(()=>{if(!Object.values(OPEN).includes('watch'))load()},4000);   // not while a video plays
+srcDraw();info();load();setInterval(()=>{if(!Object.values(OPEN).some(v=>v==='watch'||v==='change'))load()},4000);   // not while a video plays or a script is open
 </script></body></html>"""

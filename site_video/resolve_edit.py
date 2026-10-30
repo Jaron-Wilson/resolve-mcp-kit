@@ -27,6 +27,23 @@ def available() -> bool:
         return False
 
 
+_STARTED = False      # this process opened Resolve (so it closes it again when its edit is done)
+
+
+def close_if_started(log=print) -> None:
+    """Quit a Resolve that start_if_needed opened (in the background, -nogui), so none is left running unseen. A
+    Resolve the person opened is left alone."""
+    global _STARTED
+    if not _STARTED:
+        return
+    _STARTED = False
+    try:
+        c.connect().Quit()
+        log("closed the background DaVinci Resolve")
+    except Exception as e:
+        log(f"could not close the background Resolve ({type(e).__name__})")
+
+
 def start_if_needed(log=print, wait_s: int = 180) -> bool:
     """With SITE_VIDEO_START_RESOLVE set to Resolve's program file, open Resolve when it is not running and wait
     until its scripting answers. Run the queue in your desktop session, so Resolve opens there."""
@@ -45,6 +62,8 @@ def start_if_needed(log=print, wait_s: int = 180) -> bool:
         time.sleep(5)
         if available():
             time.sleep(5)              # let the project manager finish loading
+            global _STARTED
+            _STARTED = True
             return True
     log(f"Resolve did not answer within {wait_s} s")
     return False
@@ -131,10 +150,16 @@ def edit(work: str, name: str, clips: List[str], mix: str, captions: List[str], 
         pm.SaveProject()
     try:
         pm.GotoRootFolder()
-        if FOLDER not in (pm.GetFolderListInCurrentFolder() or []):
-            pm.CreateFolder(FOLDER)
-        if not pm.OpenFolder(FOLDER):
-            raise RuntimeError(f"Resolve would not open the project folder {FOLDER!r}")
+        folder = FOLDER
+        if folder in (pm.GetProjectListInCurrentFolder() or []):
+            # a project already has the name (an older version kept every video in one "Site videos" project), and
+            # Resolve will not make a folder named like a project
+            folder = FOLDER + " projects"
+            log(f"a project is already called {FOLDER!r}; the video goes in the folder {folder!r}")
+        if folder not in (pm.GetFolderListInCurrentFolder() or []):
+            pm.CreateFolder(folder)
+        if not pm.OpenFolder(folder):
+            raise RuntimeError(f"Resolve would not open or create the project folder {folder!r}")
         p = pm.LoadProject(name) or pm.CreateProject(name)
         if not p:
             stuck = resolve.GetCurrentPage() is None

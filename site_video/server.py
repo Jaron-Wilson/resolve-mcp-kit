@@ -13,6 +13,10 @@ GET  /api/jobs/<id>            one job
 POST /api/jobs/<id>/cancel     stop it
 POST /api/jobs/<id>/retry      run a failed or cancelled job again (finished stages are kept)
 POST /api/jobs/<id>/remove     delete a job that is not running, and its files
+GET  /api/jobs/<id>/plan       its script, what it may point at (pages, headings, buttons, your videos) and its cursor
+POST /api/jobs/<id>/suggest    {"change": "in scene 3 point at the Pro plan"} -> {"plan", "changes"}: the script with
+                               the change made by the script model, for review (nothing is saved)
+POST /api/jobs/<id>/revise     {"plan", "cursor"} -> the job, queued again; only what changed is redone
 GET  /api/jobs/<id>/video      the finished MP4 (supports Range, so browsers can seek)
 GET  /api/jobs/<id>/files/<name> one of the job's deliverables (names are in job["files"])
 GET  /api/jobs/<id>/log        the job's log
@@ -36,6 +40,7 @@ from urllib.parse import parse_qs, urlparse
 from . import pipeline
 from .deliver import KINDS
 from .queue import Queue
+from .util import read_json
 
 TOKEN = os.environ.get("SITE_VIDEO_TOKEN", "")
 MAX_UPLOAD = int(os.environ.get("SITE_VIDEO_MAX_UPLOAD_MB", "4096")) << 20
@@ -184,7 +189,7 @@ def make_handler(q: Queue):
                                            b.get("notes") or "auto", b.get("voice") or "none",
                                            b.get("editor") or "auto", "", str(b.get("name") or "")[:60],
                                            str(b.get("model") or ""), b.get("deliverables") or "video",
-                                           _allowed_media(q, b.get("media")))
+                                           _allowed_media(q, b.get("media")), b.get("cursor") or "arrow")
                     return self._send(201, q.submit(req))
                 jid = parts[2]
                 if len(parts) == 3 and method == "GET":
@@ -195,6 +200,27 @@ def make_handler(q: Queue):
                     return self._send(200, q.retry(jid))
                 if len(parts) == 4 and method == "POST" and parts[3] == "remove":
                     return self._send(200, q.remove(jid))
+                if len(parts) == 4 and method == "GET" and parts[3] == "plan":
+                    from . import revise
+                    j = q.get(jid)
+                    pl = read_json(os.path.join(q._path(jid), "plan.json"))
+                    if not pl:
+                        return self._send(404, {"error": "this job has no script yet"})
+                    return self._send(200, {"plan": pl, "targets": revise.context(q._path(jid)),
+                                            "cursor": (j.get("request") or {}).get("cursor") or "arrow",
+                                            "cursors": list(pipeline.CURSORS)})
+                if len(parts) == 4 and method == "POST" and parts[3] == "suggest":
+                    from . import revise
+                    b = self._body()
+                    j = q.get(jid)
+                    try:
+                        return self._send(200, revise.suggest(q._path(jid), str(b.get("change") or ""),
+                                                              (j.get("request") or {}).get("model") or ""))
+                    except RuntimeError as e:
+                        return self._send(502, {"error": str(e)})
+                if len(parts) == 4 and method == "POST" and parts[3] == "revise":
+                    b = self._body()
+                    return self._send(200, q.revise(jid, b.get("plan"), b.get("cursor")))
                 if len(parts) == 4 and method in ("GET", "HEAD") and parts[3] == "video":
                     path = q.video_path(jid)
                     return self._video(path) if path else self._send(404, {"error": "no video yet"})

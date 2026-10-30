@@ -6,6 +6,7 @@ cursor and a lower-third caption are added to the page, since a headless browser
 
 import base64
 import html
+import json
 import os
 import shutil
 import time
@@ -19,7 +20,12 @@ OVERLAY = r"""(() => {
   if (window.__sv) return;
   const css = `#__sv_cur{position:fixed;left:0;top:0;width:20px;height:20px;z-index:2147483647;pointer-events:none;
       transform:translate(-100px,-100px);transition:transform 0s;filter:drop-shadow(0 2px 3px rgba(0,0,0,.45))}
-    #__sv_cur.down{scale:.85}
+    #__sv_cur.down svg{transform:scale(.85)}
+    #__sv_cur .halo{position:absolute;left:-15px;top:-15px;width:40px;height:40px;border-radius:50%;
+      background:rgba(255,214,64,.30);box-shadow:0 0 0 2px rgba(255,214,64,.55)}
+    .__sv_rip{position:fixed;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;z-index:2147483646;
+      pointer-events:none;border:3px solid rgba(255,214,64,.95);animation:__sv_rip .6s ease-out forwards}
+    @keyframes __sv_rip{to{transform:scale(4);opacity:0}}
     #__sv_cap{position:fixed;left:42px;bottom:46px;z-index:2147483646;pointer-events:none;max-width:70vw;
       font:600 26px/1.2 system-ui,"Segoe UI",Inter,Helvetica,Arial,sans-serif;color:#fff;letter-spacing:-.01em;
       background:rgba(14,16,22,.82);backdrop-filter:blur(8px);border-left:4px solid #4f9dff;border-radius:7px;
@@ -29,11 +35,18 @@ OVERLAY = r"""(() => {
     if (document.getElementById('__sv_cur')) return;
     const st = document.createElement('style'); st.textContent = css; document.documentElement.appendChild(st);
     const cur = document.createElement('div'); cur.id = '__sv_cur';
-    cur.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 2l15 11-6.5 1.2L16 21l-3 1.4-3.6-6.9L4 19z" fill="#fff" stroke="#111" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+    const look = window.__svCursorStyle || 'arrow';
+    const arrow = '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 2l15 11-6.5 1.2L16 21l-3 1.4-3.6-6.9L4 19z" fill="#fff" stroke="#111" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+    const hand = '<svg viewBox="0 0 24 24" width="22" height="22" style="margin:-1px 0 0 -5px"><path d="M9 11V4.5a1.5 1.5 0 0 1 3 0V10h.5V8.5a1.5 1.5 0 0 1 3 0V10h.5V9.5a1.5 1.5 0 0 1 3 0V15c0 3.5-2.3 6-5.7 6H12c-2 0-3.3-.8-4.5-2.4L4.6 14.5a1.5 1.5 0 0 1 2.3-1.9L9 14.6z" fill="#fff" stroke="#111" stroke-width="1.3" stroke-linejoin="round"/></svg>';
+    cur.innerHTML = (look === 'ring' ? '<div class="halo"></div>' : '') + (look === 'hand' ? hand : arrow);
+    if (look === 'none') cur.style.display = 'none';
     document.documentElement.appendChild(cur);
     const cap = document.createElement('div'); cap.id = '__sv_cap'; document.documentElement.appendChild(cap);
     document.addEventListener('mousemove', e => { cur.style.transform = `translate(${e.clientX - 4}px,${e.clientY - 2}px)`; }, true);
-    document.addEventListener('mousedown', () => cur.classList.add('down'), true);
+    document.addEventListener('mousedown', e => { cur.classList.add('down');
+      if (look !== 'ring') return;
+      const r = document.createElement('div'); r.className = '__sv_rip'; r.style.left = e.clientX + 'px'; r.style.top = e.clientY + 'px';
+      document.documentElement.appendChild(r); setTimeout(() => r.remove(), 700); }, true);
     document.addEventListener('mouseup', () => cur.classList.remove('down'), true);
   };
   window.__sv = {
@@ -64,18 +77,20 @@ OVERLAY = r"""(() => {
 })()"""
 
 SECONDS_FOR = {"scroll": 2.2, "hover": 1.6, "click": 2.4}
+CURSORS = ("arrow", "hand", "ring", "none")     # ring: the arrow with a highlight around it and a ripple on clicks
 LEAD, TAIL = 0.5, 0.6          # quiet time at the start and end of each scene
 
 
 class Recorder:
     """One browser for a job; scenes on the same URL continue where the last one left off."""
 
-    def __init__(self, work: str, log=print):
+    def __init__(self, work: str, log=print, cursor: str = "arrow"):
         from playwright.sync_api import sync_playwright
         self.work, self.log = work, log
         self._pw = sync_playwright().start()
         self.browser = self._pw.chromium.launch()
         self.ctx = self.browser.new_context(viewport={"width": VIEW_W, "height": VIEW_H}, device_scale_factor=SCALE)
+        self.ctx.add_init_script(f"window.__svCursorStyle = {json.dumps(cursor if cursor in CURSORS else 'arrow')};")
         self.ctx.add_init_script(OVERLAY)
         self.cards = self.browser.new_context(viewport={"width": WIDTH, "height": HEIGHT}, device_scale_factor=1)
         self.page = self.ctx.new_page()

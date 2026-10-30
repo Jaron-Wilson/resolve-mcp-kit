@@ -6,6 +6,7 @@
   site-video serve [--host 127.0.0.1] [--port 8940] [--parallel 2] [--home DIR]
   site-video add [URL] [same options as make] [--server http://host:8940]   (videos are uploaded to the server)
   site-video list | status ID | cancel ID | retry ID | remove ID | get ID [-o file.mp4]     [--server ...]
+  site-video change ID "in scene 3 point at the Pro plan" [--cursor hand] [--dry-run]       [--server ...]
 
 A link, your own videos, or both. A video's note says what it is and what to use from it:
 --video demo.mp4 --note-for "app demo, use the part where I add a card". With a link and videos, website scenes
@@ -95,6 +96,8 @@ def main(argv=None):
         p.add_argument("--deliver", default="video",
                        help="comma list: video, script, voiceover, clips, timeline, resolve_project, package, or all")
         p.add_argument("--name", default="")
+        p.add_argument("--cursor", default="arrow", choices=["arrow", "hand", "ring", "none"],
+                       help="the cursor on website scenes (ring: arrow with a highlight and a ripple on clicks)")
 
     p = sub.add_parser("make", help="make one video now, in this terminal")
     job_args(p)
@@ -116,6 +119,12 @@ def main(argv=None):
         if name == "get":
             p.add_argument("-o", "--output", default="")
         p.add_argument("--server", default=DEFAULT_SERVER)
+    p = sub.add_parser("change", help="change a finished video in words, then make it again (only what changed)")
+    p.add_argument("id")
+    p.add_argument("change")
+    p.add_argument("--cursor", default="", choices=["", "arrow", "hand", "ring", "none"])
+    p.add_argument("--dry-run", action="store_true", help="only show what would change")
+    p.add_argument("--server", default=DEFAULT_SERVER)
     sub.add_parser("odysseus-mod", help="run as an Odysseus mod (started by Odysseus)")
     p = sub.add_parser("_stage")      # internal: one stage of a queued job, in its own process
     p.add_argument("stage", choices=["prep", "edit"])
@@ -133,7 +142,7 @@ def main(argv=None):
         from . import pipeline
         try:
             req = pipeline.request(a.url, a.length, a.notes, a.voice, a.editor, a.music, a.name, a.model, a.deliver,
-                                   _media(a))
+                                   _media(a), a.cursor)
         except ValueError as e:
             sys.exit(f"error: {e}")
         out = a.out or os.path.join(DEFAULT_HOME, "jobs", time.strftime("%Y%m%d-%H%M%S-cli"))
@@ -152,7 +161,7 @@ def main(argv=None):
         for m in media:
             print(f"uploading {m['file']} ...", flush=True)
             m["file"] = _upload(a.server, m["file"])
-        j = _http(a.server, "POST", "/api/jobs", {"url": a.url, "media": media, "length": a.length, "notes": a.notes, "voice": a.voice,
+        j = _http(a.server, "POST", "/api/jobs", {"url": a.url, "media": media, "cursor": a.cursor, "length": a.length, "notes": a.notes, "voice": a.voice,
                                                     "editor": a.editor, "name": a.name, "model": a.model,
                                                     "deliverables": a.deliver.split(",")})
         _show(j)
@@ -162,6 +171,17 @@ def main(argv=None):
             print(f"  {int((j.get('progress') or 0) * 100):3d}%  {j.get('step')}", flush=True)
         if a.wait:
             _show(j)
+        return
+    if a.cmd == "change":
+        got = _http(a.server, "POST", f"/api/jobs/{a.id}/suggest", {"change": a.change})
+        for line in got["changes"]:
+            print(" -", line)
+        if a.dry_run:
+            return
+        body = {"plan": got["plan"]}
+        if a.cursor:
+            body["cursor"] = a.cursor
+        _show(_http(a.server, "POST", f"/api/jobs/{a.id}/revise", body))
         return
     if a.cmd == "list":
         for j in _http(a.server, "GET", "/api/jobs"):
