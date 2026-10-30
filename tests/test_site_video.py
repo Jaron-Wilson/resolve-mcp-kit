@@ -261,3 +261,14 @@ def test_only_a_jobs_own_deliverables_can_be_downloaded_and_running_jobs_stay(tm
     with pytest.raises(ValueError):
         q.remove(k["id"])
     assert q.remove(j["id"])["removed"] and not os.path.exists(q._path(j["id"]))
+
+
+def test_a_relative_job_folder_is_made_absolute(tmp_path, monkeypatch):
+    """ffmpeg runs inside other folders: a relative --out used to double up in its file lists."""
+    from site_video import pipeline
+    seen = []
+    monkeypatch.setattr(pipeline, "prep", lambda job_dir, req, step: seen.append(job_dir) or {})
+    monkeypatch.setattr(pipeline, "edit", lambda job_dir, req, ready, step: seen.append(job_dir) or {})
+    monkeypatch.chdir(tmp_path)
+    pipeline.run("my-first-video", {}, step=lambda s, f: None)
+    assert seen == [str(tmp_path / "my-first-video")] * 2

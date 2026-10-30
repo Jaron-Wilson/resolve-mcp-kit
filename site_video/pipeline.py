@@ -284,6 +284,7 @@ def edit(job_dir: str, req: Dict, ready: Dict, step: Callable[[str, float], None
 
 def run(job_dir: str, req: Dict, step: Optional[Callable] = None) -> Dict:
     step = step or (lambda s, f: print(f"[{int(f * 100):3d}%] {s}", flush=True))
+    job_dir = os.path.abspath(job_dir)      # ffmpeg runs in other folders, so a relative path would point nowhere
     os.makedirs(job_dir, exist_ok=True)
     ready = prep(job_dir, req, step)
     return edit(job_dir, req, ready, step)

@@ -21,6 +21,7 @@ import json
 import os
 import sys
 import time
+import urllib.error
 import urllib.request
 
 DEFAULT_SERVER = os.environ.get("SITE_VIDEO_SERVER", "http://127.0.0.1:8940")
@@ -162,7 +163,15 @@ def main(argv=None):
         except ValueError as e:
             sys.exit(f"error: {e}")
         out = a.out or os.path.join(DEFAULT_HOME, "jobs", time.strftime("%Y%m%d-%H%M%S-cli"))
-        res = pipeline.run(out, req)
+        try:
+            res = pipeline.run(out, req)
+        except urllib.error.URLError as e:
+            from . import llm
+            sys.exit(f"error: a server could not be reached ({e.reason}). The script model is at {llm.settings()['url']}: "
+                     "start it, or set SITE_VIDEO_LLM_URL and SITE_VIDEO_LLM_MODEL (see Model setup in the README). "
+                     "A voice server has its own SITE_VIDEO_TTS_URL.")
+        except (RuntimeError, ValueError, OSError) as e:
+            sys.exit(f"error: {e}\nThe job's log is {os.path.join(os.path.abspath(out), 'log.txt')}")
         print(json.dumps(res, indent=2))
         return
     if a.cmd == "serve":

@@ -71,6 +71,15 @@ Chromium may need system libraries: `sudo .venv/bin/python -m playwright install
 this once. Set `RESOLVE_MCP_SKIP_VIDEO=1` first to skip the video packages and the Chromium download if you only
 want the Resolve MCP server. Set `RESOLVE_MCP_REINSTALL=1` once after you update this folder.
 
+**Check the install (optional, about 15 seconds).** Run the tests. They need no model, no Resolve and no network:
+
+```
+python -m pip install pytest
+python -m pytest tests
+```
+
+You should see `80 passed`.
+
 ffmpeg needs no install: the `imageio-ffmpeg` package ships a copy. Set `FFMPEG` to the path of your own ffmpeg to use that
 instead.
 
