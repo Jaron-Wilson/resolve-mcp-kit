@@ -47,7 +47,9 @@ def script_md(plan: Dict, secs: List[float]) -> str:
     t += secs[0]
     for i, s in enumerate(plan["scenes"]):
         d = secs[i + 1]
-        lines += [f"## {i + 1}. {s.get('caption') or 'Scene'} ({stamp(t)}, {d:.1f} s)", "", f"Page: {s['url']}", ""]
+        where = (f"Your video: {s['video']}, {stamp(s['from'])} to {stamp(s['to'])}"
+                 + (" (its own sound)" if s.get("sound") == "keep" else "")) if "video" in s else f"Page: {s['url']}"
+        lines += [f"## {i + 1}. {s.get('caption') or 'Scene'} ({stamp(t)}, {d:.1f} s)", "", where, ""]
         if s.get("actions"):
             acts = []
             for a in s["actions"]:

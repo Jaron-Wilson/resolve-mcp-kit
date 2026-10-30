@@ -1,6 +1,6 @@
 ---
 name: website-promo-video
-description: Make a narrated promo or walkthrough video of a website from its link, edited in DaVinci Resolve (or ffmpeg). Use when asked to "make a video of this site", "go through this website and make a video", or to queue several site videos.
+description: Make a narrated promo or walkthrough video of a website, of the person's own videos, or of both, edited in DaVinci Resolve (or ffmpeg). Use when asked to "make a video of this site", "go through this website and make a video", "edit my videos into a promo", or to queue several site videos.
 license: See the LICENSE file of resolve-mcp-kit
 compatibility: opencode, Claude Code, any MCP client. Needs a site-video queue (python -m site_video serve) and, for the Resolve edit, the resolve MCP server next to an open DaVinci Resolve.
 metadata:
@@ -18,7 +18,7 @@ afterwards; without Resolve it is joined with ffmpeg.
 
 From the `resolve` MCP server (prefixed in your client, e.g. `resolve_make_site_video`):
 
-- `make_site_video(url, length, notes, voice, editor, name)`: queue one. Returns a job id at once.
+- `make_site_video(url, length, notes, voice, editor, name, model, deliverables, videos)`: queue one. Returns a job id at once.
 - `site_video_status(job_id)`: where it is. Done jobs carry `video` (a path on the queue's machine) and `download`.
 - `list_site_videos(limit)`: the newest jobs.
 
@@ -39,6 +39,15 @@ People ask in their own words. Map them like this:
 | "give me the script / voice files / clips / the timeline / the Resolve project / everything zipped" | `deliverables`: `script`, `voiceover`, `clips`, `timeline`, `resolve_project`, `package` (the last means all) |
 | "use gemma4 / the 27b / GPT for the script" | `model`: the matching id from the queue's models; otherwise leave it empty |
 | "two videos at once", a list of links | one `make_site_video` call per link; the queue runs 2 at a time |
+| "go find the media yourself", only a link | `url` only: the site is recorded |
+| "I have a few videos I want edited, no link" | `videos` only, `url` empty |
+| "here's my site and 2 videos, make it 5 minutes, fill the rest" | `url` + `videos` + `length`: website scenes fill the time around their videos |
+| what a video is, or what to use from it ("use the part where I add a card") | that video's `note`, their words kept whole |
+
+`videos` are files the queue already has: `[{"file": path, "note": "..."}]`. Someone with the videos on their own
+computer uploads them on the queue's page (Website + my videos), or with `python -m site_video add --video file
+--note-for "..."`, which uploads them. Files already on the queue's computer can be used directly when they are in
+one of its `SITE_VIDEO_MEDIA_DIRS` folders. Do not guess paths: ask where the videos are, or point them at the page.
 
 Voices: `none`, `openai[:voice]` (OpenAI or a Kokoro-FastAPI server, e.g. `openai:af_heart`), `elevenlabs:<voice id>`,
 `odysseus`. If the voice they named is not configured on the queue, the job fails with a clear reason: tell them.

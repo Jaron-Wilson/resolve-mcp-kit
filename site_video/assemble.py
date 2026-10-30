@@ -23,14 +23,29 @@ def durations(plan: Dict, voice_secs: List[float]) -> List[float]:
     return [frames(d) / FPS for d in out]
 
 
-def soundtrack(work: str, voice_wavs: List[Optional[str]], secs: List[float], music: Optional[str], out: str) -> None:
-    """One WAV for the whole video: each segment's narration at its lead-in, music under it if given."""
+UNDER_VOICE = 0.18     # a video's own sound, under the narrator
+
+
+def soundtrack(work: str, voice_wavs: List[Optional[str]], secs: List[float], music: Optional[str], out: str,
+               own: Optional[List[Optional[str]]] = None) -> None:
+    """One WAV for the whole video: each segment's narration at its lead-in, music under it if given. `own` holds,
+    per segment, the sound of the owner's video it shows (or None): at full level alone, quietly under narration."""
+    own = own or [None] * len(secs)
     parts = []
     for i, (wav, d) in enumerate(zip(voice_wavs, secs)):
         seg = os.path.join(work, f"aseg_{i:03d}.wav")
         kind = "intro" if i == 0 else "outro" if i == len(secs) - 1 else "scene"
-        if wav and os.path.exists(wav):
-            ms = int(VOICE_AT[kind] * 1000)
+        talk = bool(wav and os.path.exists(wav))
+        clip = own[i] if i < len(own) and own[i] and os.path.exists(own[i]) else None
+        ms = int(VOICE_AT[kind] * 1000)
+        if talk and clip:
+            ffmpeg("-i", wav, "-i", clip, "-filter_complex",
+                   f"[0:a]adelay={ms}|{ms},apad[v];[1:a]volume={UNDER_VOICE},apad[c];"
+                   "[v][c]amix=inputs=2:duration=longest:normalize=0[a]",
+                   "-map", "[a]", "-t", f"{d:.4f}", "-ar", str(RATE), "-ac", "2", "-c:a", "pcm_s16le", seg)
+        elif clip:
+            ffmpeg("-i", clip, "-af", "apad", "-t", f"{d:.4f}", "-ar", str(RATE), "-ac", "2", "-c:a", "pcm_s16le", seg)
+        elif talk:
             ffmpeg("-i", wav, "-af", f"adelay={ms}|{ms},apad", "-t", f"{d:.4f}", "-ar", str(RATE), "-ac", "2",
                    "-c:a", "pcm_s16le", seg)
         else:

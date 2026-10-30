@@ -239,6 +239,25 @@ class Recorder:
         self.page.wait_for_timeout(500)
         self.page.screenshot(path=out_png)
 
+    def caption_png(self, text: str, out_png: str) -> None:
+        """The lower-third caption alone on a transparent 1920x1080 image, the same as on website scenes, for laying
+        over the owner's videos."""
+        s = WIDTH / VIEW_W
+        doc = f"""<!doctype html><html><head><style>
+          html,body{{margin:0;width:{WIDTH}px;height:{HEIGHT}px;overflow:hidden;background:transparent}}
+          div{{position:fixed;left:{42 * s:.0f}px;bottom:{46 * s:.0f}px;max-width:70vw;color:#fff;letter-spacing:-.01em;
+              font:600 {26 * s:.0f}px/1.2 system-ui,"Segoe UI",Inter,Helvetica,Arial,sans-serif;
+              background:rgba(14,16,22,.82);border-left:{4 * s:.0f}px solid #4f9dff;border-radius:{7 * s:.0f}px;
+              padding:{11 * s:.0f}px {18 * s:.0f}px}}
+        </style></head><body><div>{html.escape(text)}</div></body></html>"""
+        pg = self.cards.new_page()
+        try:
+            pg.set_content(doc)
+            pg.wait_for_timeout(150)
+            pg.screenshot(path=out_png, omit_background=True)
+        finally:
+            pg.close()
+
     def card(self, kind: str, title: str, sub: str, hero_png: str, seconds: float, out: str) -> None:
         """An intro or outro card: the site blurred behind big type, with a slow push-in and fades."""
         with open(hero_png, "rb") as f:

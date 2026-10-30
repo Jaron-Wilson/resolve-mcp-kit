@@ -29,19 +29,24 @@ SETTINGS = os.path.join(DATA, "settings.json")
 TOOLS = [
     {"type": "function", "function": {
         "name": "make_site_video",
-        "description": ("Make a narrated promo video of a website: it reads the site, writes a script, records the site "
-                        "in a browser and edits it in DaVinci Resolve. Takes minutes; returns a job id. Use when asked "
-                        "to make a video of a site or go through a website and make a video."),
+        "description": ("Make a narrated promo video of a website, of the user's own videos, or of both: it reads the "
+                        "site, watches the videos, writes a script, records the site in a browser and edits it in "
+                        "DaVinci Resolve. Takes minutes; returns a job id. Use when asked to make a video of a site, go "
+                        "through a website and make a video, or edit their videos into a promo."),
         "parameters": {"type": "object", "properties": {
-            "url": {"type": "string", "description": "The website's link"},
+            "url": {"type": "string", "description": "The website's link (leave out for videos only)"},
+            "videos": {"type": "array", "description": "The user's own videos to edit in, as files the queue already has: uploaded on the Site videos page, or in a folder the queue allows (SITE_VIDEO_MEDIA_DIRS). With a url too, website scenes fill the length around them; without one, the video is made from these alone",
+                       "items": {"type": "object", "properties": {
+                           "file": {"type": "string", "description": "the file's path on the queue's computer"},
+                           "note": {"type": "string", "description": "what it is and what to use from it, in the user's words"}},
+                           "required": ["file"]}},
             "length": {"type": "string", "description": "e.g. 5min, 90s, 1:30, or auto (default)"},
             "notes": {"type": "string", "description": "What the video must do or show, in the user's words; auto if nothing"},
             "voice": {"type": "string", "description": "none, odysseus, openai[:voice], elevenlabs:<voice id>; leave out for the default"},
             "editor": {"type": "string", "enum": ["auto", "resolve", "ffmpeg"]},
             "model": {"type": "string", "description": "The model that writes the script, if the user named one; leave out for the default"},
             "deliverables": {"type": "array", "items": {"type": "string", "enum": ["video", "script", "voiceover", "clips", "timeline", "resolve_project", "package"]},
-                             "description": "What to hand back besides the video, if the user asked: script, voiceover files, clips, the timeline (.drt/.fcpxml/.edl), the Resolve project (.drp), or package (all of it zipped)"}},
-            "required": ["url"]}},
+                             "description": "What to hand back besides the video, if the user asked: script, voiceover files, clips, the timeline (.drt/.fcpxml/.edl), the Resolve project (.drp), or package (all of it zipped)"}}}},
      "x-odysseus": {"keywords": ["video", "promo", "walkthrough"], "read_only": False}},
     {"type": "function", "function": {
         "name": "site_video_status",
@@ -87,7 +92,7 @@ class Backend:
         base, tok = self.target()
         u = urlparse(base)
         conn = (http.client.HTTPSConnection if u.scheme == "https" else http.client.HTTPConnection)(
-            u.hostname, u.port or (443 if u.scheme == "https" else 80), timeout=60)
+            u.hostname, u.port or (443 if u.scheme == "https" else 80), timeout=300)
         h = dict(headers or {})
         if tok:
             h["Authorization"] = "Bearer " + tok
@@ -109,12 +114,27 @@ class Backend:
 BACKEND = Backend()
 
 
+class _Limited:
+    """The first n bytes of a stream, read in pieces (http.client sends a file-like body as it reads it)."""
+
+    def __init__(self, f, n):
+        self.f, self.left = f, n
+
+    def read(self, size=-1):
+        if self.left <= 0:
+            return b""
+        b = self.f.read(self.left if size is None or size < 0 else min(size, self.left))
+        self.left -= len(b)
+        return b
+
+
 def _job_text(j, base):
     r = j.get("request") or {}
     line = f"Job {j['id']}: {j['status']}"
     if j["status"] in ("queued", "preparing", "waiting", "editing"):
         line += f" ({j.get('step')}, {int((j.get('progress') or 0) * 100)}%)"
-    line += f". {r.get('url')}, length {r.get('length')}, voice {r.get('voice')}, script model {r.get('model') or 'default'}"
+    what = " + ".join(x for x in [r.get("url") or "", ", ".join(os.path.basename(m["file"]) for m in r.get("media") or [])] if x)
+    line += f". {what}, length {r.get('length')}, voice {r.get('voice')}, script model {r.get('model') or 'default'}"
     if r.get("notes") and r["notes"] != "auto":
         line += f", notes: {r['notes'][:200]}"
     if j.get("error"):
@@ -130,7 +150,8 @@ def _job_text(j, base):
 def tool(name, args):
     base = os.environ.get("ODYSSEUS_MOD_BASE", f"/mods/{MOD_ID}")
     if name == "make_site_video":
-        body = {"url": str(args.get("url") or "").strip(), "length": args.get("length") or "auto",
+        body = {"url": str(args.get("url") or "").strip(), "media": args.get("videos") or [],
+                "length": args.get("length") or "auto",
                 "notes": args.get("notes") or "auto", "editor": args.get("editor") or "auto",
                 "model": args.get("model") or "", "deliverables": args.get("deliverables") or ["video"]}
         body["voice"] = args.get("voice") or BACKEND.json("GET", "/api/info").get("default_voice", "none")
@@ -199,8 +220,12 @@ class Handler(BaseHTTPRequestHandler):
         return self.rfile.read(n) if n else b""
 
     def _proxy(self, method):
-        body = self._body() if method == "POST" else None
+        body = None
         fwd = {k: v for k, v in self.headers.items() if k.lower() in ("content-type", "range", "accept")}
+        if method == "POST":
+            n = int(self.headers.get("Content-Length") or 0)
+            fwd["Content-Length"] = str(n)
+            body = _Limited(self.rfile, n) if n else b""
         try:
             conn, r = BACKEND.call(method, self.path, body, fwd)
         except (OSError, socket.timeout) as e:

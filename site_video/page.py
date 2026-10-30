@@ -32,11 +32,24 @@ button.pri{background:var(--acc);border-color:var(--acc);color:#081221;font-weig
 .files a{font-size:13px;overflow-wrap:anywhere}.files .sz{color:var(--dim);font-size:12px;margin-left:6px}
 pre{white-space:pre-wrap;font-size:12px;color:var(--dim);max-height:260px;overflow:auto;background:#111317;border-radius:8px;padding:10px;margin:10px 0 0}
 .empty{color:var(--dim)}
+.src{display:flex;gap:4px;margin-bottom:14px;max-width:560px}.src button{flex:1;padding:9px 6px}
+.vids{border:1px dashed var(--line);border-radius:10px;padding:12px;margin-bottom:12px}.vids.drag{border-color:var(--acc)}
+.vid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,2fr) auto;gap:8px;align-items:center;margin-bottom:8px}
+.vid .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.vid .n small{color:var(--dim);margin-left:6px}
+@media(max-width:720px){.vid{grid-template-columns:1fr}}.hint{color:var(--dim);font-size:13px;margin:6px 0 0}
 </style></head><body><main>
-<h1>Site videos</h1><p class="sub">Give it a link. It reads the site, writes a script, records the site in a browser, adds a voiceover and edits a promo video.</p>
+<h1>Site videos</h1><p class="sub">Give it a link, your own videos, or both. It writes a script, records the site in a browser, picks the best moments of your videos, adds a voiceover and edits a promo video.</p>
 <div class="card">
+  <label>What to use</label>
+  <div class="src" id="src"><button data-v="site">A website</button><button data-v="videos">My videos</button><button data-v="both">Website + my videos</button></div>
+  <div class="vids" id="vbox" hidden>
+    <label>Your videos</label><div id="vlist"></div>
+    <input type="file" id="vfile" accept="video/*,.mp4,.mov,.m4v,.mkv,.webm,.avi" multiple hidden>
+    <button id="vadd">Add videos</button> <span class="hint">or drop them here. Tell it what each one is and what to use from it.</span>
+    <p class="hint" id="vhint"></p>
+  </div>
   <div class="row">
-    <div><label for="url">Website</label><input id="url" placeholder="https://example.com" autocomplete="off"></div>
+    <div id="urlbox"><label for="url">Website</label><input id="url" placeholder="https://example.com" autocomplete="off"></div>
     <div><label>Length</label><div class="seg" id="len"></div></div>
     <div><label for="lenc">or exactly</label><input id="lenc" placeholder="e.g. 2:30 or 90s"></div>
   </div>
@@ -59,6 +72,25 @@ const LENS=[['auto','Auto'],['30s','30s'],['1min','1m'],['2min','2m'],['5min','5
 const lenSeg=()=>$('#len').innerHTML=LENS.map(([v,l])=>`<button data-v="${v}" class="${v===LEN&&!$('#lenc').value?'on':''}">${l}</button>`).join('');
 $('#len').onclick=e=>{const b=e.target.closest('button');if(!b)return;LEN=b.dataset.v;$('#lenc').value='';lenSeg()};$('#lenc').oninput=lenSeg;lenSeg();
 let INFO={voices:['none']};
+let SRC=localStorage.getItem('svSrc')||'site',VIDS=[];
+function srcDraw(){document.querySelectorAll('#src button').forEach(b=>b.classList.toggle('on',b.dataset.v===SRC));
+  $('#vbox').hidden=SRC==='site';$('#urlbox').style.visibility=SRC==='videos'?'hidden':'';
+  $('#vlist').innerHTML=VIDS.map((v,i)=>`<div class="vid"><span class="n" title="${esc(v.f.name)}">${esc(v.f.name)}<small>${SIZE(v.f.size)}${v.pct!=null?' &middot; '+v.pct+'%':''}</small></span>
+    <input data-i="${i}" placeholder="What is it? What should it use? e.g. app demo, use the part where I add a card" value="${esc(v.note)}">
+    <button data-x="${i}">Remove</button></div>`).join('')}
+$('#src').onclick=e=>{const b=e.target.closest('button');if(!b)return;SRC=b.dataset.v;localStorage.setItem('svSrc',SRC);srcDraw()};
+$('#vadd').onclick=()=>$('#vfile').click();
+const addFiles=fs=>{for(const f of fs)if(/^video\/|\.(mp4|mov|m4v|mkv|webm|avi)$/i.test(f.type+' '+f.name))VIDS.push({f,note:'',pct:null});srcDraw()};
+$('#vfile').onchange=()=>{addFiles($('#vfile').files);$('#vfile').value=''};
+$('#vlist').oninput=e=>{if(e.target.dataset.i!=null)VIDS[+e.target.dataset.i].note=e.target.value};
+$('#vlist').onclick=e=>{const b=e.target.closest('button[data-x]');if(b){VIDS.splice(+b.dataset.x,1);srcDraw()}};
+['dragover','dragenter'].forEach(k=>$('#vbox').addEventListener(k,e=>{e.preventDefault();$('#vbox').classList.add('drag')}));
+['dragleave','drop'].forEach(k=>$('#vbox').addEventListener(k,e=>{e.preventDefault();$('#vbox').classList.remove('drag')}));
+$('#vbox').addEventListener('drop',e=>addFiles(e.dataTransfer.files));
+function upload(v){return new Promise((ok,bad)=>{const x=new XMLHttpRequest();x.open('POST','api/uploads?name='+encodeURIComponent(v.f.name));
+  x.upload.onprogress=e=>{if(e.lengthComputable){v.pct=Math.round(e.loaded/e.total*100);srcDraw()}};
+  x.onload=()=>{let d={};try{d=JSON.parse(x.responseText)}catch(e){}x.status<300?ok(d.file):bad(new Error(d.error||('upload failed: '+x.status)))};
+  x.onerror=()=>bad(new Error('upload failed'));x.send(v.f)})}
 const DELIV=[['video','Video'],['script','Script'],['voiceover','Voiceover'],['clips','Clips'],['timeline','Timeline','Resolve'],
   ['resolve_project','Resolve project','Resolve'],['package','Full package (zip)']];
 let PICK=new Set(JSON.parse(localStorage.getItem('svDeliv')||'["video"]'));PICK.add('video');
@@ -78,17 +110,23 @@ async function info(){try{INFO=await api('api/info')}catch(e){}
   const sv=localStorage.getItem('svVoice');if(sv&&INFO.voices.includes(sv))$('#voice').value=sv;voiceHint();
   $('#models').innerHTML=(INFO.models||[]).map(m=>`<option value="${esc(m)}">`).join('');
   $('#model').placeholder='default'+(INFO.default_model?' ('+INFO.default_model+')':'');
-  $('#model').value=localStorage.getItem('svModel')||''}
+  $('#model').value=localStorage.getItem('svModel')||'';
+  $('#vhint').textContent=(INFO.vision_model?'It watches your videos with '+INFO.vision_model:'No vision model is set up here, so it only knows your notes and each video\'s length: describe them well')
+    +(INFO.stt?' and listens to what is said.':'.')+(INFO.max_upload_mb?' Up to '+INFO.max_upload_mb+' MB each.':'')}
 $('#model').onchange=()=>localStorage.setItem('svModel',$('#model').value.trim());
 function voiceHint(){const v=$('#voice').value;$('#vname').disabled=(v==='none'||v==='odysseus');
   $('#vname').placeholder=v==='elevenlabs'?(INFO.elevenlabs_voice||'voice id'):v==='openai'?(INFO.openai_voice||'alloy'):'not needed';}
 $('#voice').onchange=()=>{localStorage.setItem('svVoice',$('#voice').value);voiceHint()};
 $('#go').onclick=async()=>{const v=$('#voice').value,n=$('#vname').value.trim()||(v==='elevenlabs'?INFO.elevenlabs_voice:v==='openai'?INFO.openai_voice:'');
-  const body={url:$('#url').value.trim(),length:$('#lenc').value.trim()||LEN,notes:$('#notes').value.trim()||'auto',
+  const body={url:SRC==='videos'?'':$('#url').value.trim(),length:$('#lenc').value.trim()||LEN,notes:$('#notes').value.trim()||'auto',
     voice:(v==='elevenlabs'||v==='openai')&&n?v+':'+n:v,editor:$('#editor').value,model:$('#model').value.trim(),deliverables:[...PICK]};
+  if(SRC!=='site'&&!VIDS.length){$('#msg').className='msg bad';$('#msg').textContent='Add your videos first.';return}
+  if(SRC!=='videos'&&!body.url){$('#msg').className='msg bad';$('#msg').textContent='Give the website link.';return}
   $('#go').disabled=true;$('#msg').className='msg';$('#msg').textContent='adding...';
-  try{const j=await api('api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    $('#msg').textContent='Queued.';$('#url').value='';$('#notes').value='';load()}
+  try{if(SRC!=='site'){body.media=[];for(const [i,v] of VIDS.entries()){$('#msg').textContent=`uploading video ${i+1} of ${VIDS.length}...`;
+      v.file=v.file||await upload(v);body.media.push({file:v.file,note:v.note.trim()})}}
+    const j=await api('api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    $('#msg').textContent='Queued.';$('#url').value='';$('#notes').value='';VIDS=[];srcDraw();load()}
   catch(e){$('#msg').className='msg bad';$('#msg').textContent=e.message}finally{$('#go').disabled=false}};
 const OPEN={};
 const ago=t=>{if(!t)return'';const s=(Date.now()/1000-t);return s<60?Math.round(s)+'s ago':s<3600?Math.round(s/60)+'m ago':s<86400?Math.round(s/3600)+'h ago':new Date(t*1000).toLocaleDateString()};
@@ -97,7 +135,8 @@ async function load(){let js;try{js=await api('api/jobs')}catch(e){return}
   if(!js.length){$('#jobs').innerHTML='<p class="empty">Nothing yet.</p>';return}
   $('#jobs').innerHTML=js.map(j=>{const r=j.request||{},live=['preparing','waiting','editing','queued'].includes(j.status);
     const len=r.length==='auto'?'auto length':dur(r.length);
-    return `<div class="job" data-id="${j.id}"><div class="top"><span class="pill ${j.status}">${j.status}</span><span class="u" title="${esc(r.url)}">${esc(r.url)}</span><span class="meta" style="margin:0">${ago(j.created)}</span></div>
+    const mine=(r.media||[]).map(m=>m.file.split(/[\\/]/).pop()),what=[r.url,mine.length?mine.length+' of your videos ('+mine.join(', ')+')':''].filter(Boolean).join(' + ');
+    return `<div class="job" data-id="${j.id}"><div class="top"><span class="pill ${j.status}">${j.status}</span><span class="u" title="${esc(what)}">${esc(what)}</span><span class="meta" style="margin:0">${ago(j.created)}</span></div>
       <div class="meta">${esc(len)} &middot; voice ${esc(r.voice)}${r.model?' &middot; model '+esc(r.model):''} &middot;${r.notes&&r.notes!=='auto'?'&ldquo;'+esc(r.notes.slice(0,140))+'&rdquo;':'auto'}${j.status==='done'?' &middot; '+dur(j.seconds)+' made with '+esc(j.editor):''}${live?' &middot; '+esc(j.step||''):''}</div>
       ${live?`<div class="bar"><i style="width:${Math.round((j.progress||0)*100)}%"></i></div>`:''}
       ${j.error?`<div class="err">${esc(j.error)}</div>`:''}
@@ -112,5 +151,5 @@ $('#jobs').onclick=async e=>{const b=e.target.closest('button[data-a]');if(!b)re
   if(a==='watch'||a==='log'||a==='files'){OPEN[id]=OPEN[id]===a?null:a;load();return}
   if(a==='remove'&&!confirm('Remove this video from the queue and delete its files?'))return;
   b.disabled=true;try{await api(`api/jobs/${id}/${a}`,{method:'POST'})}catch(err){alert(err.message)}load()};
-info();load();setInterval(()=>{if(!Object.values(OPEN).includes('watch'))load()},4000);   // not while a video plays
+srcDraw();info();load();setInterval(()=>{if(!Object.values(OPEN).includes('watch'))load()},4000);   // not while a video plays
 </script></body></html>"""

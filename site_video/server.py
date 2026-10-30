@@ -2,7 +2,11 @@
 
 GET  /                         the page: a form and the queue
 GET  /api/jobs                 every job, newest first
-POST /api/jobs                 {"url", "length", "notes", "voice", "editor", "name", "model", "deliverables"} -> the new job
+POST /api/jobs                 {"url", "length", "notes", "voice", "editor", "name", "model", "deliverables", "media"}
+                               -> the new job. A url, media, or both. media: [{"file": <path from /api/uploads>,
+                               "note": "what it is / what to use"}]
+POST /api/uploads?name=<file>  the raw bytes of one of your videos -> {"file": path to put in "media"}
+                               (at most SITE_VIDEO_MAX_UPLOAD_MB, default 4096)
                                deliverables: a list from video, script, voiceover, clips, timeline, resolve_project,
                                package (see deliver.py); "all" for every one
 GET  /api/jobs/<id>            one job
@@ -13,6 +17,9 @@ GET  /api/jobs/<id>/video      the finished MP4 (supports Range, so browsers can
 GET  /api/jobs/<id>/files/<name> one of the job's deliverables (names are in job["files"])
 GET  /api/jobs/<id>/log        the job's log
 GET  /api/info                 voices, script models and editors this server offers
+
+Over HTTP a job's media must be uploads, or files inside the folders in SITE_VIDEO_MEDIA_DIRS (separated by the
+system's path separator), so a request cannot reach other files on this computer.
 
 If SITE_VIDEO_TOKEN is set, every request needs "Authorization: Bearer <token>" (or ?token=<token> once in a browser,
 which sets a cookie).
@@ -31,6 +38,20 @@ from .deliver import KINDS
 from .queue import Queue
 
 TOKEN = os.environ.get("SITE_VIDEO_TOKEN", "")
+MAX_UPLOAD = int(os.environ.get("SITE_VIDEO_MAX_UPLOAD_MB", "4096")) << 20
+
+
+def _allowed_media(q: Queue, items) -> list:
+    dirs = [os.path.realpath(d) + os.sep for d in os.environ.get("SITE_VIDEO_MEDIA_DIRS", "").split(os.pathsep) if d]
+    out = []
+    for it in items or []:
+        it = {"file": it} if isinstance(it, str) else dict(it or {})
+        path = str(it.get("file") or "")
+        real = os.path.realpath(path)
+        if not (q.is_upload(path) or any(real.startswith(d) for d in dirs)):
+            raise ValueError(f"{os.path.basename(path) or 'a video'}: upload it first (POST /api/uploads)")
+        out.append({"file": path, "note": str(it.get("note") or "")})
+    return out
 
 
 def info() -> dict:
@@ -46,7 +67,9 @@ def info() -> dict:
             "models": llm.models(), "default_model": llm.settings()["model"], "deliverables": list(KINDS),
             "editors": list(pipeline.EDITORS), "resolve": resolve_edit.available(),
             "elevenlabs_voice": os.environ.get("SITE_VIDEO_ELEVENLABS_VOICE", ""),
-            "openai_voice": os.environ.get("SITE_VIDEO_OPENAI_VOICE", "alloy")}
+            "openai_voice": os.environ.get("SITE_VIDEO_OPENAI_VOICE", "alloy"),
+            "vision_model": os.environ.get("SITE_VIDEO_VISION_MODEL", ""), "stt": os.environ.get("SITE_VIDEO_STT", ""),
+            "max_upload_mb": MAX_UPLOAD >> 20}
 
 
 def make_handler(q: Queue):
@@ -139,6 +162,16 @@ def make_handler(q: Queue):
                 if method == "GET" and u.path == "/":
                     from .page import PAGE
                     return self._send(200, PAGE, "text/html; charset=utf-8", extra)
+                if u.path == "/api/uploads" and method == "POST":
+                    size = int(self.headers.get("Content-Length") or 0)
+                    if size <= 0:
+                        return self._send(400, {"error": "send the video as the request body"})
+                    if size > MAX_UPLOAD:
+                        return self._send(413, {"error": f"too big: at most {MAX_UPLOAD >> 20} MB"})
+                    from urllib.parse import unquote
+                    name = unquote((qs.get("name") or [""])[0])
+                    path = q.save_upload(name, self.rfile, size)
+                    return self._send(201, {"file": path, "name": os.path.basename(path), "bytes": size})
                 if parts[:2] != ["api", "jobs"] and u.path != "/api/info":
                     return self._send(404, {"error": "not found"})
                 if u.path == "/api/info":
@@ -150,7 +183,8 @@ def make_handler(q: Queue):
                     req = pipeline.request(str(b.get("url") or "").strip(), b.get("length") or "auto",
                                            b.get("notes") or "auto", b.get("voice") or "none",
                                            b.get("editor") or "auto", "", str(b.get("name") or "")[:60],
-                                           str(b.get("model") or ""), b.get("deliverables") or "video")
+                                           str(b.get("model") or ""), b.get("deliverables") or "video",
+                                           _allowed_media(q, b.get("media")))
                     return self._send(201, q.submit(req))
                 jid = parts[2]
                 if len(parts) == 3 and method == "GET":
