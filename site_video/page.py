@@ -65,7 +65,7 @@ pre{white-space:pre-wrap;font-size:12px;color:var(--dim);max-height:260px;overfl
     <div><label for="voice">Voice</label><select id="voice"></select></div>
     <div><label for="vname">Voice name or id</label><input id="vname" placeholder="optional"></div>
     <div><label for="model">Script model</label><input id="model" list="models" placeholder="default" autocomplete="off"><datalist id="models"></datalist></div>
-    <div><label for="cursor">Cursor</label><select id="cursor"><option value="arrow">Arrow</option><option value="hand">Pointing hand</option><option value="ring">Arrow with highlight</option><option value="none">No cursor</option></select></div>
+    <div><label for="cursor">Cursor</label><select id="cursor"><option value="dot">Dot in the site's color</option><option value="arrow">Arrow</option><option value="hand">Pointing hand</option><option value="ring">Arrow with highlight</option><option value="none">No cursor</option></select></div>
     <div><label for="editor">Editor</label><select id="editor"><option value="auto">Auto (Resolve if it is open)</option><option value="resolve">DaVinci Resolve</option><option value="ffmpeg">Plain ffmpeg</option></select></div>
   </div>
   <label style="margin-top:14px">Deliverables</label><div class="chips" id="deliv"></div>
@@ -136,15 +136,19 @@ $('#go').onclick=async()=>{const v=$('#voice').value,n=$('#vname').value.trim()|
     $('#msg').textContent='Queued.';$('#url').value='';$('#notes').value='';VIDS=[];srcDraw();load()}
   catch(e){$('#msg').className='msg bad';$('#msg').textContent=e.message}finally{$('#go').disabled=false}};
 const OPEN={},EDIT={};
-const CUR={arrow:'arrow',hand:'pointing hand',ring:'arrow with highlight',none:'none'};
+const CUR={dot:'dot in the site color',arrow:'arrow',hand:'pointing hand',ring:'arrow with highlight',none:'none'};
 const pathGet=(o,k)=>k.split('.').reduce((x,p)=>x==null?x:x[/^[0-9]+$/.test(p)?+p:p],o);
 function pathSet(o,k,v){const ps=k.split('.');const last=ps.pop();const t=pathGet(o,ps.join('.'))??o;t[/^[0-9]+$/.test(last)?+last:last]=v}
+// every scene gets two caption fields, and the opening and closing cards their fields, so there is a box to type in
+function shape(p){p.scenes.forEach(s=>{s.captions=(s.captions&&s.captions.length?s.captions:[s.caption||'']).concat(['','']).slice(0,2)});
+  p.problem=p.problem||{statement:'',solution:''};p.outro.small=p.outro.small||'';return p}
 async function openChange(id){if(!EDIT[id]){const d=await api(`api/jobs/${id}/plan`);
-    EDIT[id]={plan:d.plan,targets:d.targets,cursor:d.cursor,cursors:d.cursors,changes:null,ask:'',msg:''}}
+    EDIT[id]={plan:shape(d.plan),targets:d.targets,cursor:d.cursor,cursors:d.cursors,changes:null,ask:'',msg:''}}
   OPEN[id]='change';load()}
 function chgHtml(id){const E=EDIT[id];if(!E)return '<p class="meta">loading the script...</p>';
   const p=E.plan,pages=E.targets.pages||[],vids=E.targets.videos||[];
-  const dls=pages.map((pg,i)=>`<datalist id="dl-${id}-${i}">${[...pg.headings,...pg.buttons].map(t=>`<option value="${esc(t)}">`).join('')}</datalist>`).join('');
+  const dls=pages.map((pg,i)=>`<datalist id="dl-${id}-${i}">${[...pg.headings,...pg.buttons].map(t=>`<option value="${esc(t)}">`).join('')}</datalist>`
+    +`<datalist id="dl-${id}-${i}-f">${(pg.inputs||[]).map(t=>`<option value="${esc(t)}">`).join('')}</datalist>`).join('');
   const scenes=p.scenes.map((s,i)=>{const vid='video' in s,last=p.scenes.length-1;
     let body;
     if(vid){body=`<div class="sr"><select data-k="s.${i}.video">${vids.map(v=>`<option ${v.file===s.video?'selected':''}>${esc(v.file)}</option>`).join('')}</select>
@@ -153,14 +157,16 @@ function chgHtml(id){const E=EDIT[id];if(!E)return '<p class="meta">loading the 
     else{const pi=Math.max(0,pages.findIndex(pg=>pg.url===s.url));
       body=`<div class="sr"><select data-k="s.${i}.url">${pages.map(pg=>`<option ${pg.url===s.url?'selected':''}>${esc(pg.url)}</option>`).join('')}</select>
         <input type="number" step="0.5" min="4" data-n="1" data-k="s.${i}.seconds" value="${s.seconds}" title="seconds"> s</div>`
-        +(s.actions||[]).map((a,k)=>`<div class="sr"><select data-k="s.${i}.actions.${k}.do">${['scroll','hover','click','pause'].map(o=>`<option ${o===a.do?'selected':''}>${o}</option>`).join('')}</select>`
+        +(s.actions||[]).map((a,k)=>`<div class="sr"><select data-k="s.${i}.actions.${k}.do">${['scroll','type','hover','click','pause'].map(o=>`<option ${o===a.do?'selected':''}>${o}</option>`).join('')}</select>`
           +(a.do==='pause'?`<input type="number" step="0.5" min="0.5" data-n="1" data-k="s.${i}.actions.${k}.seconds" value="${a.seconds||1}"> s`
+            :a.do==='type'?`<input list="dl-${id}-${pi}-f" data-k="s.${i}.actions.${k}.into" value="${esc(a.into)}" placeholder="the field (its placeholder or label)"><input data-k="s.${i}.actions.${k}.text" value="${esc(a.text)}" placeholder="what to type">`
             :`<input list="dl-${id}-${pi}" data-k="s.${i}.actions.${k}.${a.do==='scroll'?'to':'text'}" value="${esc(a.do==='scroll'?a.to:a.text)}" placeholder="${a.do==='scroll'?'a heading, top, bottom or 0 to 1':'the text to point at'}">`)
           +`<button data-c="adel" data-i="${i}" data-j="${k}" title="remove this step">&times;</button></div>`).join('')
         +`<div class="sr"><button data-c="aadd" data-i="${i}">+ step</button></div>`}
     const keep=vid&&s.sound==='keep';
-    return `<div class="sc"><div class="sh"><b>${i+1}.</b><input data-k="s.${i}.caption" value="${esc(s.caption)}" placeholder="caption">
+    return `<div class="sc"><div class="sh"><b>${i+1}.</b><input data-k="s.${i}.captions.0" value="${esc(s.captions[0])}" placeholder="caption: a full sentence about what is on screen">
       <button data-c="up" data-i="${i}" ${i?'':'disabled'} title="move up">&uarr;</button><button data-c="down" data-i="${i}" ${i<last?'':'disabled'} title="move down">&darr;</button><button data-c="del" data-i="${i}">Remove</button></div>
+      <div class="sr"><input data-k="s.${i}.captions.1" value="${esc(s.captions[1])}" placeholder="second caption, for the second half (optional)"></div>
       ${body}<textarea data-k="s.${i}.narration" placeholder="${keep?'its own sound plays here':'narration'}" ${keep?'disabled':''}>${esc(s.narration)}</textarea></div>`}).join('');
   return dls+`<div class="chg"><label>Describe the change</label>
     <textarea class="ask" placeholder="e.g. In scene 3, point at the Pro plan instead of Sign up. Make the intro shorter.">${esc(E.ask)}</textarea>
@@ -169,10 +175,13 @@ function chgHtml(id){const E=EDIT[id];if(!E)return '<p class="meta">loading the 
     <label>Or edit the script yourself</label>
     <div class="g3"><input data-k="title" value="${esc(p.title)}" placeholder="title"><input data-k="tagline" value="${esc(p.tagline)}" placeholder="tagline">
       <select data-k="__cursor">${E.cursors.map(c=>`<option value="${c}" ${c===E.cursor?'selected':''}>Cursor: ${CUR[c]||c}</option>`).join('')}</select></div>
+    <div class="g3" style="grid-template-columns:1fr 1fr"><input data-k="problem.statement" value="${esc(p.problem.statement)}" placeholder="problem card: the pain, in a sentence (empty: no problem card)">
+      <input data-k="problem.solution" value="${esc(p.problem.solution)}" placeholder="problem card: how this fixes it"></div>
     <textarea data-k="intro.narration" placeholder="intro narration">${esc(p.intro.narration)}</textarea>${scenes}
     <div class="btns">${pages.length?'<button data-c="addsite">+ website scene</button>':''}${vids.length?'<button data-c="addvid">+ video scene</button>':''}</div>
     <textarea data-k="outro.narration" placeholder="outro narration">${esc(p.outro.narration)}</textarea>
-    <input data-k="outro.call_to_action" value="${esc(p.outro.call_to_action)}" placeholder="call to action">
+    <div class="g3" style="grid-template-columns:2fr 1fr"><input data-k="outro.call_to_action" value="${esc(p.outro.call_to_action)}" placeholder="closing card line">
+      <input data-k="outro.small" value="${esc(p.outro.small)}" placeholder="small note, e.g. Free to use."></div>
     <div class="actions"><button class="pri" data-c="redo">Redo the video</button><button data-c="close">Close</button>
       <span class="msg">Only the scenes you changed are recorded again.</span></div></div>`}
 const drawChange=id=>{const b=document.querySelector(`.chgbox[data-id="${id}"]`);if(b)b.innerHTML=chgHtml(id)};
@@ -183,15 +192,15 @@ async function chgClick(b){const id=b.closest('.chgbox').dataset.id,E=EDIT[id],c
   if(c==='del')S.splice(i,1);
   if(c==='aadd')(S[i].actions=S[i].actions||[]).push({do:'hover',text:''});
   if(c==='adel')S[i].actions.splice(+b.dataset.j,1);
-  if(c==='addsite')S.push({url:pages[0].url,caption:'',narration:'',seconds:8,actions:[{do:'scroll',to:'top'}]});
-  if(c==='addvid')S.push({video:vids[0].file,from:0,to:Math.min(10,vids[0].seconds),sound:'voice',caption:'',narration:''});
+  if(c==='addsite')S.push({url:pages[0].url,captions:['',''],narration:'',seconds:8,actions:[{do:'scroll',to:'top'}]});
+  if(c==='addvid')S.push({video:vids[0].file,from:0,to:Math.min(10,vids[0].seconds),sound:'voice',captions:['',''],narration:''});
   if(c==='close'){delete EDIT[id];OPEN[id]=null;load();return}
   if(c==='suggest'){if(!E.ask.trim()){E.msg='Say what to change first.';drawChange(id);return}
     E.msg='Asking the script model (this can take a minute or two)...';drawChange(id);
     try{const d=await api(`api/jobs/${id}/suggest`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({change:E.ask})});
-      E.plan=d.plan;E.changes=d.changes;E.msg='Done. Check it below, then press Redo the video.'}
+      E.plan=shape(d.plan);E.changes=d.changes;E.msg='Done. Check it below, then press Redo the video.'}
     catch(err){E.msg=err.message}}
-  if(c==='redo'){b.disabled=true;try{await api(`api/jobs/${id}/revise`,{method:'POST',headers:{'Content-Type':'application/json'},
+  if(c==='redo'){b.disabled=true;S.forEach(s=>{s.caption=s.captions[0]||s.captions[1]||''});try{await api(`api/jobs/${id}/revise`,{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({plan:E.plan,cursor:E.cursor})});delete EDIT[id];OPEN[id]=null;load();return}
     catch(err){E.msg=err.message;b.disabled=false}}
   drawChange(id)}
@@ -218,7 +227,8 @@ $('#jobs').addEventListener('input',e=>{const el=e.target,box=el.closest('.chgbo
   if(el.classList.contains('ask')){E.ask=el.value;return}const k=el.dataset.k;if(!k)return;
   if(k==='__cursor'){E.cursor=el.value;return}pathSet(E.plan,k,el.dataset.n?parseFloat(el.value)||0:el.value)});
 $('#jobs').addEventListener('change',e=>{const el=e.target,box=el.closest('.chgbox');if(!box||el.tagName!=='SELECT')return;const E=EDIT[box.dataset.id],k=el.dataset.k||'';
-  if(k.endsWith('.do')){const a=pathGet(E.plan,k.slice(0,-3));a.to=a.to||a.text||'';a.text=a.text||a.to||''}
+  if(k.endsWith('.do')){const a=pathGet(E.plan,k.slice(0,-3));a.to=a.to||a.text||'';a.text=a.text||a.to||'';
+    if(a.do==='type'){a.into=a.into||'';a.enter=true}}
   drawChange(box.dataset.id)});
 $('#jobs').onclick=async e=>{const cb=e.target.closest('.chgbox button[data-c]');if(cb){chgClick(cb);return}
   const b=e.target.closest('button[data-a]');if(!b)return;const id=b.closest('.job').dataset.id,a=b.dataset.a;

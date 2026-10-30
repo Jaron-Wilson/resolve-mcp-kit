@@ -180,13 +180,21 @@ with a Task Scheduler task "At log on of <you>" running
 Give it a link and it makes a narrated promo video of the site:
 
 1. **Reads the site**: the start page and the same-site pages it links to (headings, buttons, text).
-2. **Writes a script** with any OpenAI-compatible model: scenes, captions, narration and what to scroll to or point
-   at, fitted to the length you ask for and to your notes ("show pricing, end on sign-up"), or chosen for you.
-3. **Records the real site** in Chromium at 1080p/30: smooth scrolling, a visible cursor that glides to things,
-   lower-third captions, plus intro and outro title cards.
-4. **Adds a voiceover**, with the voice chosen per video.
-5. **Edits it in DaVinci Resolve**: a new timeline in a "Site videos" project (one bin per video, a marker per
-   scene, so you can polish it by hand), then a render. Without Resolve, it joins the clips with ffmpeg instead.
+2. **Reads the brand**: the site's background, text and main colors, its heading font and its logo, and whether its
+   reading column is narrow (then pages are recorded at 1.5x so they fill the frame).
+3. **Writes a script** with any OpenAI-compatible model, in the shape of a hand-made product promo: a title card, a
+   "the problem" card, 6 to 10 short scenes that each show one feature working (typing a real example into the
+   site's search, opening tabs, pointing at results, scrolling to the section that proves it), each with one or two
+   full-sentence captions of facts on screen, and a closing card with the site's address. It fits the length you ask
+   for and your notes ("show pricing, end on sign-up"), or chooses one.
+4. **Records the real site** in Chromium at 1920x1080/30 with a soft dot cursor in the brand color, eased scrolls and
+   cursor moves and real typing; the waiting is cut out and each scene sped up (to 2.4x) to fit. Nothing is sent but
+   page loads.
+5. **Draws the cards and captions** in the site's own font and colors (cards with a slow push-in, captions as pills
+   with a check mark), and **adds a voiceover**, with the voice chosen per video.
+6. **Edits it in DaVinci Resolve**, laid out like the hand-made promos: its own project in the "Site videos" folder,
+   track V1 "Picture" with a dissolve centered on every cut, V2 "Captions" with each caption image fading in and out,
+   A1 the soundtrack, so you can polish it by hand; then a render. Without Resolve, ffmpeg makes the same edit.
 
 It never logs in, buys, submits forms or deletes anything on the site. Only make videos of sites you may show.
 
@@ -203,7 +211,7 @@ A job can use a website, your own videos, or both:
 Before writing the script it watches each video: a frame every few seconds described by a vision model
 (`SITE_VIDEO_VISION_MODEL`), and what is said, by time, from speech to text (`SITE_VIDEO_STT`). Without them it
 knows only your notes and each video's length, so describe the videos well. A scene from your video plays either its
-own sound (someone speaking) or the narration with its sound quietly under it. It gets the same lower-third caption
+own sound (someone speaking) or the narration with its sound quietly under it. It gets the same captions
 as the website scenes, and is fitted to 1920x1080 at 30 fps, with letterboxing if the shape differs. Every video you
 give is used at least once.
 
@@ -259,16 +267,19 @@ A finished (or failed) video can be changed and made again: on the page, press *
 
 - **Describe the change** in words ("in scene 3, point at the Pro plan instead", "make the intro shorter", "swap scenes 4
   and 5") and press **Apply to the script**: the script model makes the change and lists what differs, for you to check.
-- **Or edit the script yourself**: each scene's caption, narration, page and steps (scroll to / hover / click / pause,
-  with the page's headings and buttons to pick from), your videos' times and sound, the order, and the cursor.
+- **Or edit the script yourself**: the title and problem cards, the closing line, each scene's two captions,
+  narration, page and steps (scroll to / type / hover / click / pause, with the page's headings, buttons and text
+  fields to pick from), your videos' times and sound, the order, and the cursor. A changed caption only redraws its
+  image; no scene is recorded again for it.
 - **Redo the video**: only the scenes that changed are recorded, cut or voiced again, so a one-scene fix takes about a
   minute. The old script is kept as `plan.<n>.json`.
 
 The same from a terminal, `python -m site_video change <id> "point at the Pro plan in scene 3" [--dry-run]`, from the
 HTTP API (`GET /api/jobs/<id>/plan`, `POST .../suggest`, `POST .../revise`), and from agents (`edit_site_video`).
 
-The cursor on website scenes is chosen per video (`--cursor`, the page's Cursor menu, or `cursor` in the API): `arrow`
-(default), `hand`, `ring` (the arrow with a highlight, and a ripple on clicks) or `none`.
+The cursor on website scenes is chosen per video (`--cursor`, the page's Cursor menu, or `cursor` in the API): `dot`
+(default: a soft dot in the site's main color that shrinks on clicks, as in the hand-made promos), `arrow`, `hand`,
+`ring` (the arrow with a highlight, and a ripple on clicks) or `none`.
 
 ### Deliverables
 

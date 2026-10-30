@@ -21,7 +21,7 @@ import uuid
 from typing import Dict, List
 
 from . import llm
-from .util import FPS, HEIGHT, RATE, WIDTH, ffmpeg, ffmpeg_exe, frames, read_json, write_json
+from .util import FPS, HANDLE, HEIGHT, RATE, WIDTH, ffmpeg, ffmpeg_exe, frames, read_json, write_json
 
 VIDEO_EXT = (".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi")
 CHUNK = 15.0
@@ -149,23 +149,17 @@ def frame_png(path: str, at: float, out_png: str) -> None:
            "-vf", f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,crop={WIDTH}:{HEIGHT}", out_png)
 
 
-def cut(path: str, start: float, seconds: float, out_mp4: str, out_wav: str = "", caption_png: str = "") -> None:
+def cut(path: str, start: float, seconds: float, out_mp4: str, out_wav: str = "") -> None:
     """[start, start+seconds) of a video as a 1920x1080 30 fps clip of exact length (the last frame held if the
-    video ends first) with the caption image faded in over it, and its sound as a 48 kHz WAV when out_wav is given."""
+    video ends first) plus HANDLE frames each side for the dissolves, and its sound (the exact length, no handles)
+    as a 48 kHz WAV when out_wav is given. Captions go over it in the edit."""
     n = frames(seconds)
     fit = (f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=decrease,pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2:black,"
-           f"setsar=1,fps={FPS},tpad=stop_mode=clone:stop_duration={seconds + 1:.2f}")
-    if caption_png:
-        graph = (f"[0:v]{fit}[v];[1:v]format=rgba,fade=t=in:st=0.5:d=0.45:alpha=1[c];"
-                 "[v][c]overlay=0:0:shortest=0,format=yuv420p[out]")
-        ffmpeg("-ss", f"{start:.3f}", "-i", path, "-loop", "1", "-framerate", str(FPS), "-i", caption_png,
-               "-filter_complex", graph, "-map", "[out]", "-an",
-               "-frames:v", str(n), "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-r", str(FPS),
-               "-movflags", "+faststart", out_mp4)
-    else:
-        ffmpeg("-ss", f"{start:.3f}", "-i", path, "-an", "-vf", fit + ",format=yuv420p",
-               "-frames:v", str(n), "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-r", str(FPS),
-               "-movflags", "+faststart", out_mp4)
+           f"setsar=1,fps={FPS},tpad=stop_mode=clone:stop_duration={seconds + 1:.2f},trim=end_frame={n},"
+           f"tpad=start_mode=clone:start={HANDLE}:stop_mode=clone:stop={HANDLE},format=yuv420p")
+    ffmpeg("-ss", f"{start:.3f}", "-i", path, "-an", "-vf", fit,
+           "-frames:v", str(n + 2 * HANDLE), "-c:v", "libx264", "-preset", "medium", "-crf", "16", "-r", str(FPS),
+           "-movflags", "+faststart", out_mp4)
     if out_wav:
         ffmpeg("-ss", f"{start:.3f}", "-i", path, "-t", f"{n / FPS:.4f}", "-vn", "-af", "apad", "-ar", str(RATE),
                "-ac", "2", "-c:a", "pcm_s16le", "-t", f"{n / FPS:.4f}", out_wav)

@@ -1,7 +1,7 @@
 """Deliverables: what a job hands back, chosen per job.
 
 video            the rendered MP4 (always)
-script           script.md (scenes, captions, narration, on-screen actions) and plan.json
+script           script.md (cards, scenes, captions, narration, on-screen actions) and plan.json
 voiceover        voiceover/: one WAV per narration line, and soundtrack.wav (the mixed audio of the whole video)
 clips            clips/: the recorded scenes and the title cards, 1920x1080 30 fps
 timeline         the Resolve timeline as .drt (Resolve), .fcpxml (Final Cut, Premiere) and .edl (Resolve edits only)
@@ -43,13 +43,20 @@ def script_md(plan: Dict, secs: List[float]) -> str:
 
     def stamp(x):
         return f"{int(x // 60)}:{int(x % 60):02d}"
-    lines += [f"## Intro ({stamp(t)}, {secs[0]:.1f} s)", "", plan["intro"].get("narration") or "(no narration)", ""]
+    problem = plan.get("problem") or {}
+    lines += [f"## Opening ({stamp(t)}, {secs[0]:.1f} s)", "", f"Title card: {plan.get('title') or ''}", ""]
+    if problem.get("statement"):
+        lines += [f"Problem card: {problem['statement']}" + (f" {problem['solution']}" if problem.get("solution") else ""), ""]
+    lines += [plan["intro"].get("narration") or "(no narration)", ""]
     t += secs[0]
     for i, s in enumerate(plan["scenes"]):
         d = secs[i + 1]
         where = (f"Your video: {s['video']}, {stamp(s['from'])} to {stamp(s['to'])}"
                  + (" (its own sound)" if s.get("sound") == "keep" else "")) if "video" in s else f"Page: {s['url']}"
-        lines += [f"## {i + 1}. {s.get('caption') or 'Scene'} ({stamp(t)}, {d:.1f} s)", "", where, ""]
+        caps = s.get("captions") or ([s["caption"]] if s.get("caption") else [])
+        lines += [f"## {i + 1}. {caps[0] if caps else 'Scene'} ({stamp(t)}, {d:.1f} s)", "", where, ""]
+        if len(caps) > 1:
+            lines += [f"Then: {caps[1]}", ""]
         if s.get("actions"):
             acts = []
             for a in s["actions"]:
@@ -58,8 +65,9 @@ def script_md(plan: Dict, secs: List[float]) -> str:
             lines += ["On screen: " + "; ".join(acts), ""]
         lines += [s.get("narration") or "(no narration)", ""]
         t += d
-    lines += [f"## Outro ({stamp(t)}, {secs[-1]:.1f} s)", "", plan["outro"].get("narration") or "(no narration)", "",
-              f"Call to action: {plan['outro'].get('call_to_action') or plan.get('url')}", "",
+    lines += [f"## Closing card ({stamp(t)}, {secs[-1]:.1f} s)", "", plan["outro"].get("narration") or "(no narration)", "",
+              f"On the card: {plan['outro'].get('call_to_action') or plan.get('url')}"
+              + (f" ({plan['outro']['small']})" if plan["outro"].get("small") else ""), "",
               f"Total: {stamp(sum(secs))}"]
     return "\n".join(lines) + "\n"
 

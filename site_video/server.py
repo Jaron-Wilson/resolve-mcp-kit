@@ -189,7 +189,7 @@ def make_handler(q: Queue):
                                            b.get("notes") or "auto", b.get("voice") or "none",
                                            b.get("editor") or "auto", "", str(b.get("name") or "")[:60],
                                            str(b.get("model") or ""), b.get("deliverables") or "video",
-                                           _allowed_media(q, b.get("media")), b.get("cursor") or "arrow")
+                                           _allowed_media(q, b.get("media")), b.get("cursor") or "dot")
                     return self._send(201, q.submit(req))
                 jid = parts[2]
                 if len(parts) == 3 and method == "GET":
@@ -207,7 +207,7 @@ def make_handler(q: Queue):
                     if not pl:
                         return self._send(404, {"error": "this job has no script yet"})
                     return self._send(200, {"plan": pl, "targets": revise.context(q._path(jid)),
-                                            "cursor": (j.get("request") or {}).get("cursor") or "arrow",
+                                            "cursor": (j.get("request") or {}).get("cursor") or "dot",
                                             "cursors": list(pipeline.CURSORS)})
                 if len(parts) == 4 and method == "POST" and parts[3] == "suggest":
                     from . import revise

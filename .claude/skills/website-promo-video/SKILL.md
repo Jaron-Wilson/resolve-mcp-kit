@@ -10,9 +10,10 @@ metadata:
 # Website promo videos
 
 A site-video queue turns a link into a finished MP4: it reads the site, writes a script, records the real site in a
-browser (smooth scrolling, a visible cursor, lower-third captions), adds a voiceover, and edits it. In DaVinci
-Resolve the edit is a new timeline in the "Site videos" project, with a marker per scene, so a person can polish it
-afterwards; without Resolve it is joined with ffmpeg.
+browser (a dot cursor in the brand color, eased scrolls, real typing), draws title, problem and closing cards and
+full-sentence captions in the site's font and colors, adds a voiceover, and edits it. In DaVinci Resolve the edit is
+its own project in the "Site videos" folder (V1 picture with dissolves, V2 captions, A1 soundtrack), so a person can
+polish it afterwards; without Resolve ffmpeg makes the same edit.
 
 ## Tools
 

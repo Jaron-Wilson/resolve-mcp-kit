@@ -27,7 +27,8 @@ def context(job_dir: str) -> Dict:
     cr = read_json(os.path.join(job_dir, "crawl.json")) or {}
     vids = _videos(job_dir)
     return {"pages": [{"url": p["url"], "headings": [h["text"] for h in p.get("headings", [])][:60],
-                       "buttons": (p.get("buttons") or [])[:60]} for p in cr.get("pages") or []],
+                       "buttons": (p.get("buttons") or [])[:60], "inputs": (p.get("inputs") or [])[:20]}
+                      for p in cr.get("pages") or []],
             "videos": [{"file": m["file"], "seconds": m["seconds"], "audio": m["audio"]} for m in vids]}
 
 
@@ -64,6 +65,7 @@ def suggest(job_dir: str, change: str, model: str = "", log=print) -> Dict:
     if pages:
         user += "Website pages that can be shown:\n" + "\n".join(
             f"PAGE {p['url']}\n  headings: {' | '.join(p['headings'])}\n  buttons/links: {' | '.join(p['buttons'])}"
+            + (f"\n  text fields: {' | '.join(p['inputs'])}" if p.get("inputs") else "")
             for p in pages)[:12000] + "\n\n"
     if vids:
         user += "The owner's videos:\n" + media.catalogue(vids)[:8000] + "\n\n"
@@ -108,12 +110,19 @@ def _what(s: Dict) -> str:
     return f"{s.get('url')}" + (f" ({acts})" if acts else "")
 
 
+def _caps(s: Dict) -> List[str]:
+    caps = s.get("captions") if isinstance(s.get("captions"), list) else [s.get("caption") or ""]
+    return [c for c in caps if c]
+
+
 def diff(old: Dict, new: Dict) -> List[str]:
     """The differences between two scripts, as short sentences."""
     out = []
     for k, label in (("title", "Title"), ("tagline", "Tagline")):
         if (old.get(k) or "") != (new.get(k) or ""):
             out.append(f"{label}: “{new.get(k) or ''}”")
+    if (old.get("problem") or {}) != (new.get("problem") or {}):
+        out.append(f"Problem card: “{(new.get('problem') or {}).get('statement') or 'none'}”")
     if (old.get("intro") or {}).get("narration") != (new.get("intro") or {}).get("narration"):
         out.append("Intro narration changed")
     if (old.get("outro") or {}) != (new.get("outro") or {}):
@@ -123,15 +132,15 @@ def diff(old: Dict, new: Dict) -> List[str]:
         out.append(f"{len(b)} scenes (was {len(a)})")
     for i in range(max(len(a), len(b))):
         if i >= len(b):
-            out.append(f"Scene {i + 1} removed: {a[i].get('caption') or _what(a[i])}")
+            out.append(f"Scene {i + 1} removed: {_caps(a[i])[:1] and _caps(a[i])[0] or _what(a[i])}")
             continue
         if i >= len(a):
-            out.append(f"Scene {i + 1} added: {b[i].get('caption') or _what(b[i])}")
+            out.append(f"Scene {i + 1} added: {_caps(b[i])[:1] and _caps(b[i])[0] or _what(b[i])}")
             continue
         x, y = a[i], b[i]
         bits = []
-        if x.get("caption") != y.get("caption"):
-            bits.append(f"caption “{y.get('caption')}”")
+        if _caps(x) != _caps(y):
+            bits.append("caption " + " / ".join(f"“{c}”" for c in _caps(y)) if _caps(y) else "no caption")
         if x.get("narration") != y.get("narration"):
             bits.append("narration")
         if _what(x) != _what(y):

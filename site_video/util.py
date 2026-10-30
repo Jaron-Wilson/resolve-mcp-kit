@@ -10,8 +10,10 @@ from typing import List, Optional
 
 FPS = 30
 WIDTH, HEIGHT = 1920, 1080
-# the browser lays pages out at 1280x720 and draws them 1.5x, so the 1080p video has readable text
-VIEW_W, VIEW_H, SCALE = 1280, 720, 1.5
+# pages are laid out and recorded at a real 1920x1080 (the hand-made promos were; upscaled 720p looked soft)
+VIEW_W, VIEW_H, SCALE = 1920, 1080, 1
+HANDLE = 15       # spare frames before and after every clip, so the edit can dissolve across each cut
+DISSOLVE = 14     # frames, centered on each cut
 RATE = 48000      # audio sample rate everywhere
 
 
@@ -31,6 +33,9 @@ def ffmpeg(*args: str, cwd: Optional[str] = None) -> None:
     cmd = [ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y", *args]
     r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
     if r.returncode != 0:
+        out = os.path.join(cwd or "", args[-1]) if args and (len(args) < 2 or args[-2] != "-i") else ""
+        if out and os.path.isfile(out):
+            os.unlink(out)          # a half-written file would pass for a finished segment next time
         raise RuntimeError("ffmpeg failed: " + (r.stderr or r.stdout).strip()[-800:])
 
 

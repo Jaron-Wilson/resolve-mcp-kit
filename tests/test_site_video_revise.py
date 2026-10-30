@@ -101,10 +101,19 @@ def test_only_the_changed_scene_is_made_again(tmp_path, clip):
         pytest.skip(f"no browser: {type(e).__name__}")
     stamp = {c: os.path.getmtime(c) for c in a["clips"]}
     edited = pipeline.read_json(os.path.join(d, "plan.json"))
-    edited["scenes"][1]["caption"] = "Two, better"
+    edited["scenes"][1]["captions"] = ["Two, better"]           # a caption is its own image: no clip is cut again
+    revise.apply(d, edited)
+    b = pipeline.prep(d, req)
+    assert b["clips"] == a["clips"] and all(os.path.getmtime(c) == stamp[c] for c in b["clips"])
+    assert [c["text"] for c in b["captions"]][-1] == "Two, better"
+    assert all(os.path.exists(c["png"]) for c in b["captions"])
+    edited = pipeline.read_json(os.path.join(d, "plan.json"))
+    edited["scenes"][1]["to"] = 8                               # a longer moment is
     revise.apply(d, edited)
     b = pipeline.prep(d, req)
     same = [c for c in b["clips"] if c in stamp and os.path.getmtime(c) == stamp[c]]
-    assert len(same) == len(b["clips"]) - 1 and b["clips"][2] not in stamp
+    assert b["clips"][2] not in stamp and b["clips"][1] in same
     assert sorted(f for f in os.listdir(os.path.join(d, "clips")) if f.endswith(".mp4")) == \
         sorted(os.path.basename(c) for c in b["clips"])         # the old version of the scene is gone
+    assert sorted(f for f in os.listdir(os.path.join(d, "clips")) if f.startswith("cap_")) == \
+        sorted(os.path.basename(c["png"]) for c in b["captions"])

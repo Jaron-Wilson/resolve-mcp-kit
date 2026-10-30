@@ -6,7 +6,7 @@ import pytest
 
 from site_video import assemble, media, pipeline, plan, server
 from site_video.queue import Queue
-from site_video.util import FPS, ffmpeg, media_seconds
+from site_video.util import FPS, HANDLE, ffmpeg, media_seconds
 
 CRAWL = {"start": "https://ex.com", "pages": [
     {"url": "https://ex.com/", "title": "Ex", "headings": [{"text": "Pricing", "at": 0.5}], "buttons": ["Sign up"]}]}
@@ -82,7 +82,7 @@ def test_videos_only_run_on_to_reach_the_length_as_far_as_the_footage_goes():
     raw = {"title": "", "scenes": [{"video": "demo.mp4", "from": 0, "to": 10, "caption": "a"},
                                    {"video": "broll.mov", "from": 0, "to": 10, "caption": "b"}]}
     p = plan.check(raw, None, 60, [DEMO, BROLL])
-    assert sum(s["seconds"] for s in p["scenes"]) == pytest.approx(50, abs=0.1)
+    assert sum(s["seconds"] for s in p["scenes"]) == pytest.approx(45, abs=0.1)        # 60 less the cards
     p = plan.check(raw, None, 300, [DEMO, BROLL])
     assert [s["to"] for s in p["scenes"]] == [40.0, 20.0]                 # all there is
     assert p["title"] == "demo" and p["url"] == ""
@@ -91,7 +91,7 @@ def test_videos_only_run_on_to_reach_the_length_as_far_as_the_footage_goes():
 def test_a_moment_is_cut_to_exact_frames_with_its_sound(clip, tmp_path):
     out, wav = str(tmp_path / "c.mp4"), str(tmp_path / "c.wav")
     media.cut(clip, 1.0, 5.0, out, wav)                                  # runs past the end: the last frame holds
-    assert media_seconds(out) == pytest.approx(5.0, abs=1.5 / FPS)
+    assert media_seconds(out) == pytest.approx(5.0 + 2 * HANDLE / FPS, abs=1.5 / FPS)   # with its handles
     assert media_seconds(wav) == pytest.approx(5.0, abs=0.05)
     info = media.analyze(clip, "note", str(tmp_path / "a.json"))
     assert info["audio"] and info["width"] == 640 and info["seconds"] == pytest.approx(4, abs=0.1)
