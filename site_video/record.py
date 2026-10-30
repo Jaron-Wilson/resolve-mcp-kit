@@ -53,24 +53,48 @@ OVERLAY = r"""(() => {
     ensure: add,
     caption(t) { add(); const c = document.getElementById('__sv_cap'); if (!t) { c.classList.remove('on'); return; }
       c.textContent = t; requestAnimationFrame(() => c.classList.add('on')); },
+    // Many app-like sites scroll an inner panel, not the page: scrolling goes to whichever element holds the target
+    // (or, for top/bottom/a fraction, the one with the most to scroll), remembered in __svScroller for scrollTo.
+    doc() { return document.scrollingElement || document.documentElement; },
+    viewH(s) { return s === this.doc() ? innerHeight : s.clientHeight; },
+    range(s) { return s.scrollHeight - this.viewH(s); },
+    scrolls(el) { const st = getComputedStyle(el);
+      return /(auto|scroll|overlay)/.test(st.overflowY) && el.scrollHeight > el.clientHeight + 4; },
+    main() {
+      let best = this.doc(), most = this.range(best);
+      for (const el of document.querySelectorAll('body *')) {
+        if (el.clientHeight < innerHeight * 0.3 || el.clientWidth < innerWidth * 0.3 || !this.scrolls(el)) continue;
+        const r = this.range(el); if (r > most) { best = el; most = r; }
+      }
+      return best;
+    },
+    scrollerOf(el) { for (let p = el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement)
+        if (this.scrolls(p)) return p;
+      return this.doc(); },
+    targetFor(el, frac = 0.18) {
+      const s = this.scrollerOf(el), top = s === this.doc() ? 0 : s.getBoundingClientRect().top;
+      window.__svScroller = s;
+      return el.getBoundingClientRect().top - top + s.scrollTop - this.viewH(s) * frac;
+    },
+    scrollTop() { return (window.__svScroller || this.main()).scrollTop; },
     scrollTo(y, ms) { return new Promise(res => {
-      const se = document.scrollingElement || document.documentElement, y0 = se.scrollTop,
-            max = se.scrollHeight - innerHeight, y1 = Math.max(0, Math.min(max, y)), t0 = performance.now();
-      document.documentElement.style.scrollBehavior = 'auto';
+      const se = window.__svScroller || this.main(), y0 = se.scrollTop,
+            y1 = Math.max(0, Math.min(this.range(se), y)), t0 = performance.now();
+      document.documentElement.style.scrollBehavior = 'auto'; se.style.scrollBehavior = 'auto';
       const ease = k => k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
       const step = now => { const k = Math.min(1, (now - t0) / ms); se.scrollTop = y0 + (y1 - y0) * ease(k);
         k < 1 ? requestAnimationFrame(step) : res(); };
       requestAnimationFrame(step); }); },
     targetY(what) {
-      const se = document.scrollingElement || document.documentElement, max = se.scrollHeight - innerHeight;
-      if (what === 'top') return 0;
-      if (what === 'bottom') return max;
-      const n = Number(what); if (!isNaN(n) && String(what).trim() !== '') return n * max;
+      if (['top', 'bottom'].includes(what) || (String(what).trim() !== '' && !isNaN(Number(what)))) {
+        const s = this.main(); window.__svScroller = s;
+        return what === 'top' ? 0 : what === 'bottom' ? this.range(s) : Number(what) * this.range(s);
+      }
       const want = String(what).toLowerCase().trim();
       const pick = sel => [...document.querySelectorAll(sel)].find(el => (el.innerText || '').toLowerCase().trim().startsWith(want))
         || [...document.querySelectorAll(sel)].find(el => (el.innerText || '').toLowerCase().includes(want));
       const el = pick('h1,h2,h3,h4') || pick('section,article,p,li,a,button');
-      return el ? el.getBoundingClientRect().top + se.scrollTop - innerHeight * 0.18 : null;
+      return el ? this.targetFor(el) : null;
     },
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', add); else add();
@@ -79,6 +103,7 @@ OVERLAY = r"""(() => {
 SECONDS_FOR = {"scroll": 2.2, "hover": 1.6, "click": 2.4}
 CURSORS = ("arrow", "hand", "ring", "none")     # ring: the arrow with a highlight around it and a ripple on clicks
 LEAD, TAIL = 0.5, 0.6          # quiet time at the start and end of each scene
+VERSION = 2      # bump when a recording would come out differently, so saved website clips are made again
 
 
 class Recorder:
@@ -172,8 +197,8 @@ class Recorder:
             return
         box = el.bounding_box()
         if box and not (40 < box["y"] < VIEW_H - 80):       # bring it into view first, smoothly
-            y = self.page.evaluate("() => (document.scrollingElement || document.documentElement).scrollTop")
-            self.page.evaluate("([y, ms]) => window.__sv.scrollTo(y, ms)", [y + box["y"] - VIEW_H * 0.4, 900])
+            y = el.evaluate("e => window.__sv.targetFor(e, 0.4)")    # in whichever panel scrolls it
+            self.page.evaluate("([y, ms]) => window.__sv.scrollTo(y, ms)", [y, 900])
             box = el.bounding_box()
             seconds = max(0.6, seconds - 0.9)
         if not box:
@@ -248,7 +273,7 @@ class Recorder:
         if url.rstrip("/") != (self.url or "").rstrip("/"):
             open_page(self.page, url)
             self.url = url
-        self.page.evaluate("() => { window.__sv.caption(''); (document.scrollingElement||document.documentElement).scrollTop = 0; }")
+        self.page.evaluate("() => { window.__sv.caption(''); window.__sv.doc().scrollTop = 0; window.__sv.main().scrollTop = 0; }")
         self.page.mouse.move(-50, -50)
         self.mouse = (VIEW_W * 0.62, VIEW_H * 0.55)
         self.page.wait_for_timeout(500)

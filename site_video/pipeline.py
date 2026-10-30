@@ -11,6 +11,7 @@ import re
 from typing import Callable, Dict, List, Optional
 
 from . import assemble, crawl, deliver, media as footage, plan as planner, voice
+from .record import VERSION as REC_VERSION
 from .util import Log, is_auto, parse_length, read_json, write_json
 
 EDITORS = ("auto", "resolve", "ffmpeg")
@@ -130,7 +131,7 @@ def prep(job_dir: str, req: Dict, step: Callable[[str, float], None] = lambda s,
     hero = os.path.join(cdir, "hero.png")
     # each segment's file is named by everything that shapes it, so a revised plan reuses what did not change
     keys = [_key("card", pl["title"], pl.get("tagline", ""), secs[0])]
-    keys += [_key(s, secs[i + 1], "" if "video" in s else cursor) for i, s in enumerate(pl["scenes"])]
+    keys += [_key(s, secs[i + 1], "" if "video" in s else (cursor, REC_VERSION)) for i, s in enumerate(pl["scenes"])]
     keys.append(_key("end", pl["outro"].get("call_to_action"), pl["url"], pl["title"], secs[-1]))
     clips = [os.path.join(cdir, f"seg_{i:03d}_{k}.mp4") for i, k in enumerate(keys)]
     own = [None] * len(secs)                # the sound of the owner's video shown in a segment
