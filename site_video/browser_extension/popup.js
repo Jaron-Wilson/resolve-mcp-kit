@@ -1,8 +1,9 @@
 // Sends the sign-in this browser has for the site in the current tab (its cookies and page storage) to the
 // site-video queue. It runs only when you press the button, and only for that one site.
 const $ = id => document.getElementById(id);
-const DEFAULT = "http://100.102.86.125:8940";
-let tab, site;
+// the queue this extension was downloaded from (config.js, written by the queue), else this computer
+const DEFAULT = (self.SITE_VIDEO_DEFAULT_SERVER || "http://127.0.0.1:8940").replace(/\/+$/, "");
+let tab, site, confirmed = false;
 
 const SAME_SITE = {no_restriction: "None", lax: "Lax", strict: "Strict", unspecified: "Lax"};
 
@@ -48,6 +49,19 @@ async function readPage() {
   return {origin: location.origin, localStorage: ls, indexedDB: dbs};
 }
 
+const serverValue = () => $("server").value.trim().replace(/\/+$/, "") || DEFAULT;
+
+// plain http to another computer: the cookies (and the token) would cross the network readable by anyone on the path
+function showWarning() {
+  const server = serverValue(), risky = isInsecureRemote(server);
+  $("warn").style.display = risky ? "block" : "none";
+  $("warn").textContent = risky ? `${server} is plain http and not this computer. Your sign-in cookies and the queue ` +
+    "token would cross the network unencrypted. Use https, a VPN you trust, or a queue on this computer." : "";
+  if (!risky) confirmed = false;
+  $("go").textContent = "Send my sign-in";
+  return risky;
+}
+
 function say(text, cls) { $("out").textContent = text; $("out").className = cls || ""; }
 
 async function init() {
@@ -55,6 +69,8 @@ async function init() {
   const saved = await chrome.storage.local.get(["server", "token"]);
   $("server").value = saved.server || DEFAULT;
   $("token").value = saved.token || "";
+  $("server").oninput = () => { confirmed = false; showWarning(); };
+  showWarning();
   try { site = new URL(tab.url); } catch { site = null; }
   if (!site || !/^https?:$/.test(site.protocol)) {
     $("site").textContent = "none";
@@ -65,7 +81,12 @@ async function init() {
 }
 
 $("go").onclick = async () => {
-  const server = $("server").value.trim().replace(/\/+$/, "") || DEFAULT, token = $("token").value.trim();
+  const server = serverValue(), token = $("token").value.trim();
+  if (isInsecureRemote(server) && !confirmed) {          // ask once, then a second press sends
+    confirmed = true;
+    $("go").textContent = "Send anyway (unencrypted)";
+    return say("Check the warning above. Press the button again only if you accept that.", "bad");
+  }
   await chrome.storage.local.set({server, token});
   $("go").disabled = true;
   say("Reading the sign-in...");
@@ -89,7 +110,7 @@ $("go").onclick = async () => {
     say(`Saved. Videos of ${body.site} will be recorded signed in as you (${body.cookies} cookies, ${body.storage} stored items).`, "ok");
   } catch (e) {
     say("Not saved: " + (e.message || e) + (/fetch/i.test(String(e)) ? `\nIs the queue at ${server} running and reachable from here?` : ""), "bad");
-  } finally { $("go").disabled = false; }
+  } finally { $("go").disabled = false; confirmed = false; $("go").textContent = "Send my sign-in"; }
 };
 
 init();
