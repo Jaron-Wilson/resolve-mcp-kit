@@ -1,0 +1,20 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>site-video sign-in</title>
+<style>
+body{font:14px system-ui,sans-serif;width:300px;margin:12px;color:#1d2127}
+b{display:block;font-size:15px;margin-bottom:6px}#site{font-weight:600;word-break:break-all}
+button{width:100%;margin-top:10px;padding:8px;font:inherit;border:0;border-radius:8px;background:#2563eb;color:#fff;cursor:pointer}
+button:disabled{background:#9aa4b2;cursor:default}
+details{margin-top:10px;color:#555}input{width:100%;box-sizing:border-box;margin-top:4px;padding:5px;font:inherit}
+#out{margin-top:10px;white-space:pre-wrap}.ok{color:#15803d}.bad{color:#b91c1c}
+</style></head><body>
+<b>Use my sign-in for site videos</b>
+<div>Site: <span id="site"></span></div>
+<button id="go">Send my sign-in</button>
+<div id="out"></div>
+<details><summary>Settings</summary>
+  <label>Queue address<input id="server"></label>
+  <label>Queue token (only if it has one)<input id="token" type="password"></label>
+</details>
+<script src="popup.js"></script>
+</body></html>

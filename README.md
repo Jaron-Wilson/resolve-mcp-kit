@@ -220,6 +220,12 @@ key by key) and uses its on-screen text and voiceover. Pages named in the notes 
   close the window. The site's cookies are saved in `SITE_VIDEO_SESSIONS` (`~/.site-video/sessions`), one file per
   site, and every later video of that site is explored and recorded signed in. Your password never passes through
   site_video; `site-video signin URL --forget` deletes the saved sign-in.
+- *Use my everyday browser's sign-in* (the `site_video/browser_extension` folder, or the page's "Get the sign-in
+  extension" link, `GET /api/signin/extension.zip`): load it once in Chrome or Edge (chrome://extensions, Developer
+  mode, Load unpacked). On your site, already signed in, press it and "Send my sign-in": that site's cookies
+  (HttpOnly ones too), local storage and plain IndexedDB records go to `POST /api/signin/import` and are saved the
+  same way. Nothing is closed and no other profile is used. Set the queue address in its Settings if the queue is
+  not at the default.
 
 ### Your own videos
 

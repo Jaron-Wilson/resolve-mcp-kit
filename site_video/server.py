@@ -177,6 +177,21 @@ def make_handler(q: Queue):
                     name = unquote((qs.get("name") or [""])[0])
                     path = q.save_upload(name, self.rfile, size)
                     return self._send(201, {"file": path, "name": os.path.basename(path), "bytes": size})
+                if u.path == "/api/signin/import" and method == "POST":
+                    # the site-video browser extension sends the sign-in the person's own browser already has
+                    from . import session
+                    b = self._body()
+                    return self._send(200, session.save_from_browser(str(b.get("url") or ""), b.get("state")))
+                if u.path == "/api/signin/extension.zip" and method == "GET":
+                    import io
+                    import zipfile
+                    src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "browser_extension")
+                    buf = io.BytesIO()
+                    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+                        for n in sorted(os.listdir(src)):
+                            z.write(os.path.join(src, n), "site-video-signin/" + n)
+                    return self._send(200, buf.getvalue(), "application/zip",
+                                      {"Content-Disposition": 'attachment; filename="site-video-signin.zip"'})
                 if u.path == "/api/signin":
                     # a sign-in window opens on this computer's screen; the person logs in there and closes it
                     from . import session

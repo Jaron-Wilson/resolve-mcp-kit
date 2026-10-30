@@ -40,6 +40,28 @@ def test_sign_in_files_are_per_site_and_bad_addresses_are_refused(tmp_path, monk
         session.host("https://bad host/")
 
 
+def test_a_sign_in_from_the_browser_keeps_only_that_sites_cookies_and_storage(tmp_path, monkeypatch):
+    monkeypatch.setenv("SITE_VIDEO_SESSIONS", str(tmp_path))
+    state = {"cookies": [
+        {"name": "sid", "value": "1", "domain": "setshelf.com", "path": "/", "expires": -1, "httpOnly": True,
+         "sameSite": "no_restriction"},
+        {"name": "ga", "value": "2", "domain": ".setshelf.com", "expires": 1900000000},
+        {"name": "SID", "value": "3", "domain": ".google.com"},
+        {"name": "x", "value": "4", "domain": "notsetshelf.com"},
+        {"name": "tld", "value": "5", "domain": ".com"}],
+        "origins": [{"origin": "https://setshelf.com", "localStorage": [{"name": "auth_token", "value": "jwt"}]},
+                    {"origin": "https://accounts.google.com", "localStorage": [{"name": "k", "value": "v"}]}]}
+    got = session.save_from_browser("https://www.setshelf.com/my-shelf", state)
+    assert got["signed_in"] and got["cookies"] == 2 and got["storage"] == 1
+    import json
+    saved = json.load(open(session.path_for("https://setshelf.com")))
+    assert [c["name"] for c in saved["cookies"]] == ["sid", "ga"]
+    assert saved["cookies"][0]["sameSite"] == "None" and saved["cookies"][1]["path"] == "/"
+    assert [o["origin"] for o in saved["origins"]] == ["https://setshelf.com"]
+    with pytest.raises(ValueError):                          # nothing of the site's own: refused, not saved empty
+        session.save_from_browser("https://ex.com", state)
+
+
 def test_a_brief_is_followed_not_answered_and_the_json_ask_comes_last():
     brief = "Help me draft an outline for a short promo video. Start at https://ex.com/lot-value and paste my sets."
     p = plan.prompt(CRAWL, 60, brief, changes=True)

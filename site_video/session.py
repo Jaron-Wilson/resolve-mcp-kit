@@ -177,18 +177,60 @@ def _signin_real(exe: str, url: str, out: str, log, wait_s: int) -> bool:
                 log(f"  reading the sign-in ({type(e).__name__}); trying again")
                 time.sleep(4)
     if saved:
-        h = host(url)
-        # only this site's cookies are kept (the profile also holds Google's, which the videos do not need)
-        saved["cookies"] = [c for c in saved.get("cookies", []) if c.get("domain", "").lstrip(".").endswith(h.split(":")[0])
-                            or h.split(":")[0].endswith(c.get("domain", "").lstrip("."))]
-        def same(o):
-            try:
-                return host(o.get("origin", "")) == h
-            except ValueError:
-                return False
-        saved["origins"] = [o for o in saved.get("origins", []) if same(o)]
-        _save(saved, out)
+        _save(_only_site(saved, url), out)
     return bool(saved)
+
+
+def _only_site(state: Dict, url: str) -> Dict:
+    """Keep only this site's cookies and storage (a browser also holds Google's and every other site's)."""
+    h = host(url)
+    name = h.split(":")[0]
+
+    def mine(c):
+        d = str(c.get("domain", "")).lstrip(".").lower()
+        return bool(d) and (d == name or d.endswith("." + name) or name.endswith("." + d)) and "." in d
+
+    def same(o):
+        try:
+            return host(str(o.get("origin", ""))) == h
+        except ValueError:
+            return False
+    return {"cookies": [c for c in state.get("cookies") or [] if isinstance(c, dict) and mine(c)],
+            "origins": [o for o in state.get("origins") or [] if isinstance(o, dict) and same(o)]}
+
+
+_SAME_SITE = {"strict": "Strict", "lax": "Lax", "none": "None", "no_restriction": "None", "unspecified": "Lax"}
+
+
+def save_from_browser(url: str, state: Dict) -> Dict:
+    """Save a sign-in sent from the person's own browser (the site-video browser extension): the site's cookies and
+    page storage, as that browser has them now. Nothing has to be closed and no other profile is involved."""
+    if not isinstance(state, dict):
+        raise ValueError("send the sign-in as {cookies: [...], origins: [...]}")
+    cookies = []
+    for c in state.get("cookies") or []:
+        if not (isinstance(c, dict) and c.get("name") and isinstance(c.get("value"), str) and c.get("domain")):
+            continue
+        cookies.append({"name": str(c["name"]), "value": c["value"], "domain": str(c["domain"]),
+                        "path": str(c.get("path") or "/"), "expires": float(c.get("expires") or -1),
+                        "httpOnly": bool(c.get("httpOnly")), "secure": bool(c.get("secure")),
+                        "sameSite": _SAME_SITE.get(str(c.get("sameSite") or "lax").lower(), "Lax")})
+    origins = []
+    for o in state.get("origins") or []:
+        if not isinstance(o, dict) or not o.get("origin"):
+            continue
+        ls = [{"name": str(i["name"]), "value": str(i.get("value", ""))}
+              for i in o.get("localStorage") or [] if isinstance(i, dict) and "name" in i]
+        entry = {"origin": str(o["origin"]).rstrip("/"), "localStorage": ls}
+        if isinstance(o.get("indexedDB"), list) and o["indexedDB"]:
+            entry["indexedDB"] = o["indexedDB"]
+        origins.append(entry)
+    kept = _only_site({"cookies": cookies, "origins": origins}, url)
+    if not kept["cookies"] and not any(o["localStorage"] or o.get("indexedDB") for o in kept["origins"]):
+        raise ValueError(f"nothing from {host(url)} came with it: open the site in that browser, signed in, and try again")
+    _save(kept, path_for(url))
+    return {**status(url), "cookies": len(kept["cookies"]),
+            "storage": sum(len(o["localStorage"]) for o in kept["origins"])}
 
 
 def signin(url: str, log=print, wait_s: int = 900) -> Dict:

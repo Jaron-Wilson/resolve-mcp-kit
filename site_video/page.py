@@ -58,7 +58,10 @@ pre{white-space:pre-wrap;font-size:12px;color:var(--dim);max-height:260px;overfl
     <div id="urlbox"><label for="url">Website</label><input id="url" placeholder="https://example.com" autocomplete="off">
       <div class="mine"><label><input type="checkbox" id="changes"> This is my site: it may press buttons that save or
         create things, as my notes ask (never delete, buy or sign out)</label>
-        <span><button type="button" id="signin">Sign in as me</button> <span id="sstat" class="meta"></span></span></div></div>
+        <span><button type="button" id="signin">Sign in as me</button> <span id="sstat" class="meta"></span></span></div>
+      <p class="hint">Already signed in to it in your own Chrome or Edge? <a href="api/signin/extension.zip">Get the
+        sign-in extension</a> (unzip it, open chrome://extensions, turn on Developer mode, Load unpacked), then press it
+        on your site: your everyday browser's sign-in is used, no new window.</p></div>
     <div><label>Length</label><div class="seg" id="len"></div></div>
     <div><label for="lenc">or exactly</label><input id="lenc" placeholder="e.g. 2:30 or 90s"></div>
   </div>
