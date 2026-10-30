@@ -20,6 +20,7 @@ POST /api/jobs/<id>/revise     {"plan", "cursor"} -> the job, queued again; only
 GET  /api/jobs/<id>/video      the finished MP4 (supports Range, so browsers can seek)
 GET  /api/jobs/<id>/files/<name> one of the job's deliverables (names are in job["files"])
 GET  /api/jobs/<id>/log        the job's log
+GET  /cursors                  the cursor looks and how they move, live
 GET  /api/jobs/<id>/live.jpg   what the job's browser shows right now (while it explores or records)
 GET  /api/info                 voices, script models and editors this server offers
 
@@ -165,6 +166,10 @@ def make_handler(q: Queue):
                 extra["Set-Cookie"] = f"sv_token={qs['token'][0]}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000"
             parts = [p for p in u.path.split("/") if p]
             try:
+                if method == "GET" and u.path == "/cursors":
+                    # the cursor looks and how they move, live, for choosing one
+                    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "cursors.html"), encoding="utf-8") as f:
+                        return self._send(200, f.read(), "text/html; charset=utf-8")
                 if method == "GET" and u.path == "/":
                     from .page import PAGE
                     return self._send(200, PAGE, "text/html; charset=utf-8", extra)

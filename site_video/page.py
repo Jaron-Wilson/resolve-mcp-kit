@@ -43,7 +43,7 @@ pre{white-space:pre-wrap;font-size:12px;color:var(--dim);max-height:260px;overfl
 .sr{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}.sr input{flex:1;min-width:140px}.sr input[type=number]{flex:0 0 90px;min-width:0}
 .sr select{width:auto;max-width:100%}.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}@media(max-width:720px){.g3{grid-template-columns:1fr}}
 .live{margin-top:10px}.live img{display:block;width:100%;border-radius:8px;border:1px solid var(--line);background:#000}
-.diff{color:var(--ok);font-size:13px;margin:8px 0;padding-left:18px}.hint{color:var(--dim);font-size:13px;margin:6px 0 0}
+.diff{color:var(--ok);font-size:13px;margin:8px 0;padding-left:18px}.hint{color:var(--dim);font-size:13px;margin:6px 0 0}a.hint{display:block;color:var(--acc);text-decoration:none}a.hint:hover{text-decoration:underline}
 </style></head><body><main>
 <h1>Site videos</h1><p class="sub">Give it a link, your own videos, or both. It writes a script, records the site in a browser, picks the best moments of your videos, adds a voiceover and edits a promo video.</p>
 <div class="card">
@@ -72,7 +72,7 @@ pre{white-space:pre-wrap;font-size:12px;color:var(--dim);max-height:260px;overfl
     <div><label for="voice">Voice</label><select id="voice"></select></div>
     <div><label for="vname">Voice name or id</label><input id="vname" placeholder="optional"></div>
     <div><label for="model">Script model</label><input id="model" list="models" placeholder="default" autocomplete="off"><datalist id="models"></datalist></div>
-    <div><label for="cursor">Cursor</label><select id="cursor"><option value="auto">Auto: only where it points or clicks</option><option value="dot">Dot in the site's color</option><option value="arrow">Arrow</option><option value="hand">Pointing hand</option><option value="ring">Arrow with highlight</option><option value="none">No cursor</option></select></div>
+    <div><label for="cursor">Cursor</label><select id="cursor"><option value="auto">Auto: only where it points or clicks</option><option value="dot">Dot in the site's color</option><option value="arrow">Arrow</option><option value="hand">Pointing hand</option><option value="ring">Arrow with highlight</option><option value="none">No cursor</option></select><a class="hint" href="cursors" target="_blank" rel="noopener">See what each cursor looks like</a></div>
     <div><label for="editor">Editor</label><select id="editor"><option value="auto">Auto (Resolve if it is open)</option><option value="resolve">DaVinci Resolve</option><option value="ffmpeg">Plain ffmpeg</option></select></div>
   </div>
   <label style="margin-top:14px">Deliverables</label><div class="chips" id="deliv"></div>
@@ -193,7 +193,7 @@ function chgHtml(id){const E=EDIT[id];if(!E)return '<p class="meta">loading the 
     ${E.changes?`<ul class="diff">${E.changes.map(c=>`<li>${esc(c)}</li>`).join('')}</ul>`:''}
     <label>Or edit the script yourself</label>
     <div class="g3"><input data-k="title" value="${esc(p.title)}" placeholder="title"><input data-k="tagline" value="${esc(p.tagline)}" placeholder="tagline">
-      <select data-k="__cursor">${E.cursors.map(c=>`<option value="${c}" ${c===E.cursor?'selected':''}>Cursor: ${CUR[c]||c}</option>`).join('')}</select></div>
+      <select data-k="__cursor">${E.cursors.map(c=>`<option value="${c}" ${c===E.cursor?'selected':''}>Cursor: ${CUR[c]||c}</option>`).join('')}</select> <a class="hint" href="cursors" target="_blank" rel="noopener">see them</a></div>
     <div class="g3" style="grid-template-columns:1fr 1fr"><input data-k="problem.statement" value="${esc(p.problem.statement)}" placeholder="problem card: the pain, in a sentence (empty: no problem card)">
       <input data-k="problem.solution" value="${esc(p.problem.solution)}" placeholder="problem card: how this fixes it"></div>
     <textarea data-k="intro.narration" placeholder="intro narration">${esc(p.intro.narration)}</textarea>${scenes}
