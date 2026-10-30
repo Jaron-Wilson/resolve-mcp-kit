@@ -81,6 +81,38 @@ def test_the_cursor_moves_like_a_hand_not_a_straight_line():
     assert human_path(100, 100, 900, 500) == pts               # the same move is drawn the same way
 
 
+def test_a_workflow_is_a_chain_and_own_site_clicks_are_kept():
+    said = []
+    raw = {"title": "T", "scenes": [
+        {"url": "https://ex.com/lot-value", "captions": ["Twelve sets valued at once."], "narration": "Paste it.",
+         "actions": [{"do": "type", "into": "Paste your sets", "text": "6016-1"}, {"do": "click", "text": "Estimate value"}]},
+        {"continue": True, "captions": ["Now one bulk lot."], "narration": "Convert it.",
+         "actions": [{"do": "click", "text": "Convert to Bulk Lot"}, {"do": "click", "text": "Part In", "in": "6016-1"},
+                     {"do": "uncheck", "text": "6086-1"}]},
+        {"url": "https://ex.com/never-seen", "captions": ["Somewhere."], "narration": "x"}]}
+    mine = plan.check(raw, CRAWL, None, changes=True, log=said.append)
+    s1, s2, s3 = mine["scenes"]
+    assert [a["text"] for a in s1["actions"] if a["do"] == "click"] == ["Estimate value"]     # kept: it may appear later
+    assert s2.get("continue") and s2["url"] == s1["url"]
+    assert s2["actions"][1] == {"do": "click", "text": "Part In", "in": "6016-1"} and s2["actions"][2]["do"] == "uncheck"
+    assert s3["url"] == "https://ex.com/" and any("never-seen was not explored" in m for m in said)
+    said.clear()
+    theirs = plan.check(raw, CRAWL, None, log=said.append)                       # someone else's site: only what was seen
+    assert [a["do"] for a in theirs["scenes"][0]["actions"]] == ["type"]
+    assert any("Estimate value" in m and "dropped" in m for m in said)
+
+
+def test_a_rewrite_never_narrates_a_failure():
+    from site_video import revise
+    old = {"scenes": [{"url": "u", "captions": ["Every set in one bulk lot."], "narration": "One click."},
+                      {"url": "u", "captions": ["Part-ins for ten sets."], "narration": "Part them out."}]}
+    new = {"scenes": [{"url": "u", "captions": ["Broken/loading page with no content shown."], "narration": "x"},
+                      {"url": "u", "captions": ["Ten part-ins, ready to sort."], "narration": "Part them out."}]}
+    got = revise._keep_selling(old, new, log=lambda m: None)
+    assert got["scenes"][0]["captions"] == ["Every set in one bulk lot."]
+    assert got["scenes"][1]["captions"] == ["Ten part-ins, ready to sort."]
+
+
 def test_auto_is_a_cursor_choice():
     from site_video import pipeline, record
     assert pipeline._cursor("Auto") == "auto" and "auto" in record.CURSORS

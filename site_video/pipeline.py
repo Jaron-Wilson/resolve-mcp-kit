@@ -144,10 +144,13 @@ def prep(job_dir: str, req: Dict, step: Callable[[str, float], None] = lambda s,
     # each segment's file is named by everything that shapes it, so a revised plan reuses what did not change
     keys = [_key("open", pl["title"], pl.get("tagline", ""), pl.get("problem"), look, secs[0], CARDS_VERSION)]
     shot = lambda s: {k: v for k, v in s.items() if k not in ("caption", "captions", "narration")}   # the picture alone
-    keys += [_key(shot(s), secs[i + 1], "" if "video" in s else (cursor, look["primary"], look.get("zoom", 1.0), REC_VERSION,
-                                                       bool(session.state_for(req.get("url") or "")),
-                                                       bool(req.get("changes"))))
-             for i, s in enumerate(pl["scenes"])]
+    for i, s in enumerate(pl["scenes"]):
+        # a scene that continues the one before depends on it too: the browser is wherever that one left it
+        keys.append(_key(shot(s), secs[i + 1], "" if "video" in s else (cursor, look["primary"], look.get("zoom", 1.0),
+                                                                    REC_VERSION,
+                                                                    bool(session.state_for(req.get("url") or "")),
+                                                                    bool(req.get("changes"))),
+                         keys[-1] if s.get("continue") else ""))
     keys.append(_key("close", pl["outro"].get("call_to_action"), pl["outro"].get("small"), pl["url"], look, secs[-1],
                      CARDS_VERSION))
     clips = [os.path.join(cdir, f"seg_{i:03d}_{k}.mp4") for i, k in enumerate(keys)]
@@ -160,12 +163,20 @@ def prep(job_dir: str, req: Dict, step: Callable[[str, float], None] = lambda s,
         c["png"] = os.path.join(cdir, f"cap_{_key(c['text'], look, CARDS_VERSION)}.png")
     done = lambda i: os.path.exists(clips[i]) and (not own[i] or os.path.exists(own[i]))
     todo = [i for i in range(len(clips)) if not done(i)]
+    for i in list(todo):
+        # a continuing scene can only be recorded after the scenes it continues: redo its chain from where it starts
+        j = i
+        while 1 < j < len(clips) - 1 and pl["scenes"][j - 1].get("continue"):
+            j -= 1
+            todo.append(j)
+    todo = sorted(set(todo))
     if todo or not all(os.path.exists(c["png"]) for c in caps):
         if len(todo) < len(clips):
             log(f"redoing {len(todo)} of {len(clips)} segments; the rest are unchanged")
         from .record import Recorder
         rec = Recorder(cdir, log, cursor, look["primary"], look.get("zoom", 1.0),
-                       session.state_for(req.get("url") or ""), bool(req.get("changes")))
+                       session.state_for(req.get("url") or ""), bool(req.get("changes")), req.get("notes") or "",
+                       req.get("model") or "")
         try:
             paint = cards.painter(rec.browser, req.get("url") or "", look, job_dir, log)
             for n, i in enumerate(x for x in todo if 0 < x < len(clips) - 1):

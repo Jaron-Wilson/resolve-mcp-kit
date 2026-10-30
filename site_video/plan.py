@@ -103,10 +103,21 @@ def _crawl_text(crawl: Dict) -> str:
     return "\n".join(out)[:30000]
 
 
-MY_SITE = ("This is the person's own site and they allow changes: clicks may press buttons that save, create or "
-           "convert things (forms, \"Evaluate\", \"Create\", \"Save\", \"Finish\"), as the brief asks. Still never "
-           "delete, remove, buy, pay or sign out. Scenes play in order in one browser, so a later scene sees what an "
-           "earlier one created.")
+MY_SITE = """This is the person's own site, signed in, and they allow changes: clicks may press buttons that save,
+create or convert things, as the brief asks. Still never delete, remove, buy, pay or sign out. Scenes play in order in
+one browser, so a later scene sees what an earlier one created.
+- A workflow the brief walks through (paste a list, press a button, the new thing opens, work on it) is a chain of
+  scenes: the first one has the "url" where it starts, and every next scene of the chain has "continue": true and no
+  "url". A continuing scene carries on exactly where the one before ended, on whatever page its clicks opened, so new
+  pages whose address is not known yet can be shown.
+- Every button the brief says to press is a click step, in the brief's order. Use the button's real label when the
+  crawl lists it (the crawl's "Estimate value", not the brief's "Evaluate"). A button that only appears after an
+  earlier step (a result, a dialog, a page a click opened) may be clicked by the label the brief gives; the recorder
+  waits for it to appear. A confirm dialog needs its own click on its confirm button.
+- A button inside one row of a list: {"do": "click", "text": "<the button>", "in": "<text in that row>"}. A checkbox in a
+  row: {"do": "check", "text": "<text in that row>"} or {"do": "uncheck", ...}.
+- Captions say what the steps make happen ("All twelve sets, now one bulk lot on your shelf."), and only claim what a
+  page shows in the crawl or what the scene's steps create. A page that is empty before the steps is fine to start on."""
 
 
 def prompt(crawl: Optional[Dict], seconds: Optional[int], notes: Optional[str], media: Optional[List[Dict]] = None,
@@ -167,14 +178,14 @@ def make(crawl: Optional[Dict], seconds: Optional[int], notes: Optional[str], lo
             f"\n\nYour last reply could not be used ({last}). Reply with only valid JSON." if last else ""),
             model=model)
         try:
-            return check(llm.json_from(reply), crawl, seconds, media)
+            return check(llm.json_from(reply), crawl, seconds, media, changes=changes, log=log)
         except Exception as e:
             last = f"{type(e).__name__}: {e}"[:300]
             log(f"plan attempt {attempt + 1} unusable: {last}")
     raise RuntimeError(f"the model did not write a usable plan ({last})")
 
 
-ACTIONS = ("scroll", "hover", "click", "pause", "type")
+ACTIONS = ("scroll", "hover", "click", "pause", "type", "check", "uncheck")
 
 
 def _action(a) -> Optional[Dict]:
@@ -196,11 +207,11 @@ def _action(a) -> Optional[Dict]:
         do = a["type"]
     if do not in ACTIONS:
         return None
-    out = {k: a[k] for k in ("to", "text", "seconds", "into", "enter") if k in a}
+    out = {k: a[k] for k in ("to", "text", "seconds", "into", "enter", "in") if k in a}
     out["do"] = do
     if do == "scroll" and not out.get("to"):
         out["to"] = out.pop("text", "") or "bottom"
-    if do in ("hover", "click") and not out.get("text"):
+    if do in ("hover", "click", "check", "uncheck") and not out.get("text"):
         return None
     if do == "type" and not (out.get("into") and out.get("text")):
         return None
@@ -281,8 +292,12 @@ def _repeats(v: Dict, scenes: List[Dict]) -> bool:
 
 
 def check(plan: Dict, crawl: Optional[Dict], seconds: Optional[int], media: Optional[List[Dict]] = None,
-          fill_missing: bool = True) -> Dict:
-    """Validate and repair a plan: known URLs and videos only, sane timings, text that fits, every video used."""
+          fill_missing: bool = True, changes: bool = False, log=None) -> Dict:
+    """Validate and repair a plan: known URLs and videos only, sane timings, text that fits, every video used.
+    On the person's own site (`changes`) a click, check or type the crawl did not see is kept: it may be on something
+    an earlier step makes appear, and the recorder waits for it (and reports it if it never comes). Anything changed
+    or dropped is logged, so a script never quietly loses a step."""
+    say = log or (lambda m: None)
     media = media or []
     pages = (crawl or {}).get("pages") or []
     known = {p["url"].rstrip("/") for p in pages}
@@ -304,18 +319,28 @@ def check(plan: Dict, crawl: Optional[Dict], seconds: Optional[int], media: Opti
             continue
         if not pages:
             continue
-        url = str(s.get("url") or start).split("#")[0]
-        if url.rstrip("/") not in known:
-            url = url if url.rstrip("/") in known else start
-        page = next((p for p in pages if p["url"].rstrip("/") == url.rstrip("/")), {})
+        n = len(scenes) + 1
+        cont = bool(s.get("continue")) and bool(scenes) and "url" in scenes[-1]
+        if cont:
+            # carries on where the scene before ended; its page may be one a click opened, so any step may be on it
+            url, page = scenes[-1]["url"], {}
+        else:
+            url = str(s.get("url") or start).split("#")[0]
+            if url.rstrip("/") not in known:
+                say(f"  scene {n}: {url} was not explored, so it starts at {start} instead")
+                url = start
+            page = next((p for p in pages if p["url"].rstrip("/") == url.rstrip("/")), {})
         narration = str(s.get("narration") or "").strip()
         need = len(words(narration)) / WORDS_PER_SECOND + 1.0
         secs = max(4.0, min(60.0, _num(s.get("seconds"), need), need + 6))
         acts = []
-        for a in (s.get("actions") or [])[:8]:
-            a = _action(a)
-            if a and _on_page(a, page):
+        for raw in (s.get("actions") or [])[:8]:
+            a = _action(raw)
+            if a and (_on_page(a, page) or (changes and a["do"] in ("click", "check", "uncheck", "type"))):
                 acts.append(a)
+            else:
+                say(f"  scene {n}: step {json.dumps(raw)[:120]} dropped: "
+                    + ("not a step the recorder knows" if not a else "not on that page in the crawl"))
         if not acts:
             # a scene with nothing to do would be a still picture: move on down the page instead (scenes on the same
             # page carry on where the last one stopped)
@@ -323,7 +348,7 @@ def check(plan: Dict, crawl: Optional[Dict], seconds: Optional[int], media: Opti
             acts = [{"do": "scroll", "to": round(min(0.9, 0.3 * (before + 1)), 2)}]
         caps = _captions(s)
         scenes.append({"url": url, "captions": caps, "caption": caps[0] if caps else "", "narration": narration,
-                       "seconds": round(max(secs, need), 2), "actions": acts})
+                       "seconds": round(max(secs, need), 2), "actions": acts, **({"continue": True} if cont else {})})
     used = {s["video"] for s in scenes if "video" in s}
     for i, m in enumerate(media if fill_missing else []):   # a video the model left out still goes in, spread out
         if m["file"] not in used:
