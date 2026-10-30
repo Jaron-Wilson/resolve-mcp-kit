@@ -41,6 +41,9 @@ def _short(j: Dict[str, Any]) -> Dict[str, Any]:
     for k in ("error", "video", "editor", "seconds"):
         if j.get(k):
             out[k] = j[k]
+    if j.get("files"):
+        out["files"] = [{"name": f["name"], "kind": f["kind"], "download": f"{SERVER}/api/jobs/{j['id']}/files/{f['name']}"}
+                        for f in j["files"]]
     if j["status"] == "done":
         out["download"] = f"{SERVER}/api/jobs/{j['id']}/video"
     return out
@@ -49,7 +52,8 @@ def _short(j: Dict[str, Any]) -> Dict[str, Any]:
 def register(mcp):
     @mcp.tool()
     def make_site_video(url: str, length: str = "auto", notes: str = "auto", voice: str = "",
-                        editor: str = "auto", name: str = "", model: str = "") -> Dict[str, Any]:
+                        editor: str = "auto", name: str = "", model: str = "",
+                        deliverables: List[str] = ()) -> Dict[str, Any]:
         """Queue a promo video of a website. It reads the site, writes a script, records the site in a browser,
         adds a voiceover, and edits and renders it in DaVinci Resolve (ffmpeg if Resolve is closed). Takes a few
         minutes; returns a job id at once, then check it with site_video_status.
@@ -57,9 +61,11 @@ def register(mcp):
         length: "5min", "90s", "1:30" or "auto". notes: what the video must do or show, in plain words ("show the
         pricing page, end on sign-up, upbeat"), or "auto". voice: "none", "openai[:voice]", "elevenlabs:<voice id>",
         "odysseus", or "" for the queue's default. editor: "auto", "resolve" or "ffmpeg". model: the model that writes
-        the script (one of the queue's models, see /api/info), or "" for its default."""
+        the script (one of the queue's models, see /api/info), or "" for its default. deliverables: what to hand
+        back besides the video: script, voiceover, clips, timeline (.drt/.fcpxml/.edl), resolve_project (.drp),
+        package (all of it zipped)."""
         body = {"url": url, "length": length or "auto", "notes": notes or "auto", "editor": editor or "auto",
-                "name": name, "model": model or ""}
+                "name": name, "model": model or "", "deliverables": list(deliverables) or ["video"]}
         if voice:
             body["voice"] = voice
         else:

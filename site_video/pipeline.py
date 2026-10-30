@@ -8,14 +8,14 @@ import os
 import re
 from typing import Callable, Dict, Optional
 
-from . import assemble, crawl, plan as planner, voice
+from . import assemble, crawl, deliver, plan as planner, voice
 from .util import Log, is_auto, parse_length, read_json, write_json
 
 EDITORS = ("auto", "resolve", "ffmpeg")
 
 
 def request(url: str, length="auto", notes="auto", voice_spec="none", editor="auto", music: str = "",
-            name: str = "", model: str = "") -> Dict:
+            name: str = "", model: str = "", deliverables="video") -> Dict:
     """A checked job request (raises ValueError with a readable reason)."""
     if not re.match(r"^https?://", url or ""):
         raise ValueError("the link must start with http:// or https://")
@@ -29,7 +29,8 @@ def request(url: str, length="auto", notes="auto", voice_spec="none", editor="au
     if len(model) > 120 or any(ch.isspace() for ch in model):
         raise ValueError("model: one model id, like qwen3:8b")
     return {"url": url, "length": "auto" if seconds is None else seconds, "notes": "auto" if is_auto(notes) else notes,
-            "voice": voice_spec or "none", "editor": editor, "music": music or "", "name": name or "", "model": model}
+            "voice": voice_spec or "none", "editor": editor, "music": music or "", "name": name or "", "model": model,
+            "deliverables": deliver.parse(deliverables)}
 
 
 def _name(job_dir: str, plan: Dict, req: Dict) -> str:
@@ -121,14 +122,22 @@ def edit(job_dir: str, req: Dict, ready: Dict, step: Callable[[str, float], None
         editor = "resolve" if up else "ffmpeg"
         log(f"editor: {editor}" + ("" if editor == "resolve" else " (DaVinci Resolve is not reachable here)"))
     step("editing in DaVinci Resolve" if editor == "resolve" else "joining with ffmpeg", 0.86)
+    kinds = req.get("deliverables") or ["video"]
     if editor == "resolve":
         from . import resolve_edit
-        out = resolve_edit.edit(job_dir, ready["name"], ready["clips"], ready["mix"],
-                                [s["caption"] for s in ready["plan"]["scenes"]], job_dir, log)
+        exports = [k for k, want in (("timeline", "timeline"), ("project", "resolve_project")) if want in kinds]
+        res = resolve_edit.edit(job_dir, ready["name"], ready["clips"], ready["mix"],
+                                [s["caption"] for s in ready["plan"]["scenes"]], job_dir, log, exports)
     else:
-        out = assemble.edit_ffmpeg(job_dir, ready["clips"], ready["mix"], os.path.join(job_dir, ready["name"] + ".mp4"))
-    log(f"done: {out}")
-    return {"video": out, "editor": editor, "seconds": round(sum(ready["secs"]), 1)}
+        res = {"video": assemble.edit_ffmpeg(job_dir, ready["clips"], ready["mix"],
+                                             os.path.join(job_dir, ready["name"] + ".mp4"))}
+    res["editor"] = editor
+    step("gathering the deliverables", 0.97)
+    wavs = (read_json(os.path.join(job_dir, "voice", "voice.json"), {}) or {}).get("wavs") or []
+    files = deliver.collect(job_dir, kinds, ready, res, wavs, log)
+    video = os.path.join(job_dir, "deliverables", os.path.basename(res["video"]))
+    log(f"done: {video}")
+    return {"video": video, "editor": editor, "seconds": round(sum(ready["secs"]), 1), "files": files}
 
 
 def run(job_dir: str, req: Dict, step: Optional[Callable] = None) -> Dict:

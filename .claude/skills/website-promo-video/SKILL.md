@@ -36,6 +36,7 @@ People ask in their own words. Map them like this:
 | "make sure you show X", "end on Y", "for an audience of Z", "upbeat" | `notes`: their words, kept whole |
 | nothing about content, "auto" | `notes`: `auto` |
 | "with ElevenLabs voice ...", "no voice", "use my voice" | `voice` (see below); otherwise leave it empty for the default |
+| "give me the script / voice files / clips / the timeline / the Resolve project / everything zipped" | `deliverables`: `script`, `voiceover`, `clips`, `timeline`, `resolve_project`, `package` (the last means all) |
 | "use gemma4 / the 27b / GPT for the script" | `model`: the matching id from the queue's models; otherwise leave it empty |
 | "two videos at once", a list of links | one `make_site_video` call per link; the queue runs 2 at a time |
 

@@ -224,13 +224,29 @@ python -m site_video make https://example.com --length 2min --notes "show pricin
 script for this video (default `SITE_VIDEO_LLM_MODEL`; the page lists the endpoint's models); `--music file.mp3`
 plays music under the voice, quieter while it speaks.
 
+### Deliverables
+
+Each video can hand back more than the MP4 (`--deliver`, the page's Deliverables row, or `deliverables` in the API):
+
+| Name | What |
+|---|---|
+| `video` | The rendered MP4 (always) |
+| `script` | `script.md` (scenes with times, captions, on-screen actions and narration) and `plan.json` |
+| `voiceover` | One WAV per narration line, and `soundtrack.wav` (the mixed audio of the whole video) |
+| `clips` | The recorded scenes and title cards, 1920x1080 30 fps |
+| `timeline` | The Resolve timeline as `.drt`, `.fcpxml` (Final Cut, Premiere) and `.edl` (Resolve edits only) |
+| `resolve_project` | The video's own Resolve project as `.drp` (Resolve edits only) |
+| `package` | One zip with all of the above and a README on importing and relinking |
+
+In Resolve, each video is its own project in a "Site videos" project folder, so its `.drp` holds only that video.
+
 ### A queue (several videos, 2 at a time)
 
 ```
 python -m site_video serve --port 8940 --parallel 2
 ```
 
-Open `http://127.0.0.1:8940/` for a page with a form and the queue (watch, download, cancel, try again), or use it
+Open `http://127.0.0.1:8940/` for a page with a form and the queue (watch, download, cancel, try again, remove), or use it
 from a terminal or another program:
 
 ```

@@ -173,3 +173,65 @@ def test_the_mod_tells_the_model_what_a_job_is_doing():
     assert "recording scene 2/5, 50%" in t and "show pricing" in t
     t = _job_text(dict(j, status="done", seconds=118.2, editor="resolve"), "/mods/site-video")
     assert "118.2 s" in t and "resolve" in t and "/mods/site-video/" in t
+
+
+def test_deliverables_are_checked_and_the_package_means_everything():
+    from site_video import deliver
+    assert deliver.parse("") == ["video"]
+    assert deliver.parse("script, voiceover") == ["video", "script", "voiceover"]
+    assert deliver.parse(["clips", "video"]) == ["video", "clips"]
+    assert deliver.parse("package") == list(deliver.KINDS) == deliver.parse("all")
+    with pytest.raises(ValueError):
+        deliver.parse("video,mp3")
+
+
+PLAN = {"title": "Ex", "tagline": "Fast", "url": "https://ex.com/", "intro": {"narration": "Hello."},
+        "scenes": [{"url": "https://ex.com/", "caption": "Pricing", "narration": "It costs little.",
+                    "actions": [{"do": "scroll", "to": "Pricing"}, {"do": "pause", "seconds": 1}]}],
+        "outro": {"narration": "Try it.", "call_to_action": "Sign up"}}
+
+
+def test_the_script_reads_like_a_script():
+    from site_video import deliver
+    md = deliver.script_md(PLAN, [4.0, 9.5, 5.0])
+    assert "## 1. Pricing (0:04, 9.5 s)" in md and "On screen: scroll Pricing; pause 1 s" in md
+    assert "It costs little." in md and "Call to action: Sign up" in md and "Total: 0:18" in md
+
+
+def test_deliverables_are_gathered_and_zipped(tmp_path):
+    import zipfile
+    from site_video import deliver
+    job = tmp_path
+    for f in ("v.mp4", "c0.mp4", "c1.mp4", "c2.mp4", "mix.wav", "w0.wav"):
+        (job / f).write_bytes(b"x" * 10)
+    ready = {"name": "ex-1", "plan": PLAN, "secs": [4.0, 9.5, 5.0], "mix": str(job / "mix.wav"),
+             "clips": [str(job / c) for c in ("c0.mp4", "c1.mp4", "c2.mp4")]}
+    notes = []
+    files = deliver.collect(str(job), deliver.parse("package"), ready, {"video": str(job / "v.mp4"), "editor": "ffmpeg"},
+                            [str(job / "w0.wav"), None, None], notes.append)
+    names = {f["name"] for f in files}
+    assert {"v.mp4", "script.md", "plan.json", "voiceover/intro.wav", "voiceover/soundtrack.wav",
+            "clips/c1.mp4", "ex-1.zip"} <= names
+    assert not any(f["kind"] in ("timeline", "resolve_project") for f in files)
+    assert any("Resolve edit" in n for n in notes)            # asked for, but an ffmpeg edit has none: said so
+    with zipfile.ZipFile(job / "deliverables" / "ex-1.zip") as z:
+        assert {"ex-1/v.mp4", "ex-1/clips/c0.mp4", "ex-1/README.txt", "ex-1/script.md"} <= set(z.namelist())
+
+
+def test_only_a_jobs_own_deliverables_can_be_downloaded_and_running_jobs_stay(tmp_path):
+    q = Queue(str(tmp_path))
+    j = q.submit(pipeline.request("https://ex.com", "auto", "auto", "none", "ffmpeg"))
+    d = os.path.join(q._path(j["id"]), "deliverables")
+    os.makedirs(d)
+    open(os.path.join(d, "v.mp4"), "w").write("x")
+    open(os.path.join(q._path(j["id"]), "job.json.secret"), "w").write("x")
+    q._update(j["id"], status="done", files=[{"name": "v.mp4", "kind": "video", "bytes": 1},
+                                             {"name": "../job.json.secret", "kind": "video", "bytes": 1}])
+    assert q.file_path(j["id"], "v.mp4").endswith("v.mp4")
+    assert q.file_path(j["id"], "../job.json.secret") is None     # listed, but outside deliverables/
+    assert q.file_path(j["id"], "log.txt") is None
+    k = q.submit(pipeline.request("https://ex.com", "auto", "auto", "none", "ffmpeg"))
+    q._update(k["id"], status="preparing")
+    with pytest.raises(ValueError):
+        q.remove(k["id"])
+    assert q.remove(j["id"])["removed"] and not os.path.exists(q._path(j["id"]))

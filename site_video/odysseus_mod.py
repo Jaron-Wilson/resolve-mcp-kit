@@ -38,7 +38,9 @@ TOOLS = [
             "notes": {"type": "string", "description": "What the video must do or show, in the user's words; auto if nothing"},
             "voice": {"type": "string", "description": "none, odysseus, openai[:voice], elevenlabs:<voice id>; leave out for the default"},
             "editor": {"type": "string", "enum": ["auto", "resolve", "ffmpeg"]},
-            "model": {"type": "string", "description": "The model that writes the script, if the user named one; leave out for the default"}},
+            "model": {"type": "string", "description": "The model that writes the script, if the user named one; leave out for the default"},
+            "deliverables": {"type": "array", "items": {"type": "string", "enum": ["video", "script", "voiceover", "clips", "timeline", "resolve_project", "package"]},
+                             "description": "What to hand back besides the video, if the user asked: script, voiceover files, clips, the timeline (.drt/.fcpxml/.edl), the Resolve project (.drp), or package (all of it zipped)"}},
             "required": ["url"]}},
      "x-odysseus": {"keywords": ["video", "promo", "walkthrough"], "read_only": False}},
     {"type": "function", "function": {
@@ -118,8 +120,10 @@ def _job_text(j, base):
     if j.get("error"):
         line += f". Error: {j['error']}"
     if j["status"] == "done":
-        line += (f". Finished: {j.get('seconds')} s, edited with {j.get('editor')}. Watch or download it on the "
-                 f"Site videos tab ({base}/).")
+        kinds = sorted({f.get("kind") for f in j.get("files") or []})
+        line += (f". Finished: {j.get('seconds')} s, edited with {j.get('editor')}"
+                 + (f"; deliverables: {', '.join(kinds)}" if kinds else "")
+                 + f". Watch or download it on the Site videos tab ({base}/).")
     return line
 
 
@@ -128,7 +132,7 @@ def tool(name, args):
     if name == "make_site_video":
         body = {"url": str(args.get("url") or "").strip(), "length": args.get("length") or "auto",
                 "notes": args.get("notes") or "auto", "editor": args.get("editor") or "auto",
-                "model": args.get("model") or ""}
+                "model": args.get("model") or "", "deliverables": args.get("deliverables") or ["video"]}
         body["voice"] = args.get("voice") or BACKEND.json("GET", "/api/info").get("default_voice", "none")
         j = BACKEND.json("POST", "/api/jobs", body)
         return {"output": _job_text(j, base) + " It takes a few minutes; check it with site_video_status.", "data": j}
