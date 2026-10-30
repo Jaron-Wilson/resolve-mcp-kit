@@ -9,6 +9,7 @@ a Resolve on the same computer). Configuration is by environment variable:
   RESOLVE_MCP_TOKEN        if set, require "Authorization: Bearer <token>"
   RESOLVE_MCP_ALLOW_WRITE  1 to register editing/render tools (default: 0)
   RESOLVE_SCRIPT_API / RESOLVE_SCRIPT_LIB  override Resolve's scripting paths
+  SITE_VIDEO_SERVER        a site-video queue for the make_site_video tools (see site_video/)
 """
 
 import hmac
@@ -19,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
-from resolve_mcp import edit_tools, read_tools  # noqa: E402
+from resolve_mcp import edit_tools, read_tools, video_tools  # noqa: E402
 
 
 def _truthy(v):
@@ -33,6 +34,8 @@ def build(allow_write=None) -> FastMCP:
     read_tools.register(mcp)
     if allow_write:
         edit_tools.register(mcp)
+    if allow_write or os.environ.get("SITE_VIDEO_SERVER"):
+        video_tools.register(mcp)
     return mcp
 
 
