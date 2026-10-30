@@ -90,6 +90,10 @@ def prep(job_dir: str, req: Dict, step: Callable[[str, float], None] = lambda s,
                           catalogue=footage.catalogue(known))
         write_json(os.path.join(job_dir, "plan.json"), pl)
         log("plan: " + planner.summary(pl))
+        planned = sum(s["seconds"] for s in pl["scenes"]) + 10
+        if seconds and not req.get("url") and planned < seconds * 0.85:
+            log(f"note: your videos fill about {planned:.0f} s of the {seconds} s asked for; add a website or more "
+                "footage for a longer video")
 
     vdir = os.path.join(job_dir, "voice")
     os.makedirs(vdir, exist_ok=True)

@@ -71,6 +71,13 @@ def test_kept_sound_means_no_narration_and_moments_stay_inside_the_video():
     assert b["seconds"] >= 20 / plan.WORDS_PER_SECOND                    # stretched to say its narration
 
 
+def test_a_moment_is_not_shown_twice():
+    raw = {"scenes": [{"video": "demo.mp4", "from": 0, "to": 16, "caption": "a"},
+                      {"video": "demo.mp4", "from": 8, "to": 16, "caption": "again"},
+                      {"video": "demo.mp4", "from": 16, "to": 30, "caption": "later"}]}
+    assert [s["caption"] for s in plan.check(raw, None, None, [DEMO])["scenes"]] == ["a", "later"]
+
+
 def test_videos_only_run_on_to_reach_the_length_as_far_as_the_footage_goes():
     raw = {"title": "", "scenes": [{"video": "demo.mp4", "from": 0, "to": 10, "caption": "a"},
                                    {"video": "broll.mov", "from": 0, "to": 10, "caption": "b"}]}
@@ -114,3 +121,22 @@ def test_uploads_move_into_their_job_and_only_uploads_are_accepted_over_http(cli
     assert moved.startswith(q._path(j["id"])) and os.path.exists(moved) and not os.path.exists(path)
     q.remove(j["id"])
     assert not os.path.exists(moved)
+
+
+def test_a_model_that_only_thinks_is_asked_again_with_more_room(monkeypatch):
+    import json
+    from site_video import llm
+
+    def reply(content, why):
+        return io.BytesIO(json.dumps({"model": "m", "choices": [{"finish_reason": why,
+                                                                 "message": {"content": content}}]}).encode())
+    budgets = []
+
+    def thinks_first(req, timeout=0):
+        budgets.append(json.loads(req.data)["max_tokens"])
+        return reply("", "length") if len(budgets) == 1 else reply('{"ok": 1}', "stop")
+    monkeypatch.setattr(llm.urllib.request, "urlopen", thinks_first)
+    assert llm.chat("s", "u", max_tokens=100) == '{"ok": 1}' and budgets == [100, 200]
+    monkeypatch.setattr(llm.urllib.request, "urlopen", lambda req, timeout=0: reply("", "length"))
+    with pytest.raises(RuntimeError, match="thinking"):
+        llm.chat("s", "u", max_tokens=100)

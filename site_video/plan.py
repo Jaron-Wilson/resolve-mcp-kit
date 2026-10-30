@@ -76,7 +76,8 @@ def prompt(crawl: Optional[Dict], seconds: Optional[int], notes: Optional[str], 
                    "the story, not all at the start.")
     elif media:
         target += (f"\nThere is no website: every scene is a video scene. The owner's videos last {footage:.0f} s in "
-                   "all; use every one, and do not repeat a moment.")
+                   "all; use every one, and never show a moment twice. If that is less than the length asked for, "
+                   "make the video as long as the footage allows.")
     if not is_auto(notes):
         want = "Requirements from the person who asked (follow them exactly):\n" + notes.strip()
     elif site:
@@ -134,6 +135,16 @@ def _video_scene(s: Dict, media: List[Dict]) -> Optional[Dict]:
             "caption": str(s.get("caption") or "")[:60], "narration": narration, "seconds": round(b - a, 2)}
 
 
+def _repeats(v: Dict, scenes: List[Dict]) -> bool:
+    """Whether most of this moment was already shown (a model short of footage tends to show it twice)."""
+    for s in scenes:
+        if s.get("video") == v["video"]:
+            both = min(s["to"], v["to"]) - max(s["from"], v["from"])
+            if both > 0.5 * min(s["seconds"], v["seconds"]):
+                return True
+    return False
+
+
 def check(plan: Dict, crawl: Optional[Dict], seconds: Optional[int], media: Optional[List[Dict]] = None) -> Dict:
     """Validate and repair a plan: known URLs and videos only, sane timings, text that fits, every video used."""
     media = media or []
@@ -146,7 +157,7 @@ def check(plan: Dict, crawl: Optional[Dict], seconds: Optional[int], media: Opti
             continue
         if s.get("video"):
             v = _video_scene(s, media)
-            if v:
+            if v and not _repeats(v, scenes):
                 scenes.append(v)
             continue
         if not pages:
