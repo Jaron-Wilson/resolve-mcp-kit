@@ -179,7 +179,11 @@ with a Task Scheduler task "At log on of <you>" running
 
 Give it a link and it makes a narrated promo video of the site:
 
-1. **Reads the site**: the start page and the same-site pages it links to (headings, buttons, text).
+1. **Explores the site** (`explore.py`): every same-site page it can reach by links, up to 60 in about 4 minutes
+   (`SITE_VIDEO_EXPLORE_PAGES`, `SITE_VIDEO_EXPLORE_SECONDS`), waiting for each to finish filling in; sign-in, cart
+   and legal pages are left out and look-alike detail pages are sampled. Each page is scored for how much real content
+   it shows, its search fields are tried with a real example taken from the site's own items, and with a vision model
+   set the best views are described. The script model gets a map of every page and the best views in full.
 2. **Reads the brand**: the site's background, text and main colors, its heading font and its logo, and whether its
    reading column is narrow (then pages are recorded at 1.5x so they fill the frame).
 3. **Writes a script** with any OpenAI-compatible model, in the shape of a hand-made product promo: a title card, a
@@ -196,7 +200,26 @@ Give it a link and it makes a narrated promo video of the site:
    track V1 "Picture" with a dissolve centered on every cut, V2 "Captions" with each caption image fading in and out,
    A1 the soundtrack, so you can polish it by hand; then a render. Without Resolve, ffmpeg makes the same edit.
 
+7. **Checks the video against the script** (`review.py`, needs `SITE_VIDEO_VISION_MODEL`): each scene's clip is
+   sampled and scored 1 to 5 for showing what its caption and narration say; steps the recorder could not do count
+   against it. A scene that clearly failed (a step that did not happen, a broken or wrong page) is rewritten by the
+   script model from what was really recorded and made again, once. Verdicts are in `review.json` and the log.
+
 It never logs in, buys, submits forms or deletes anything on the site. Only make videos of sites you may show.
+
+**Notes are a brief.** Write a wish ("show pricing") or paste a whole outline with scenes, text to paste and
+voiceover: the script follows its scenes and order, types or pastes the text it gives (long text is pasted, not typed
+key by key) and uses its on-screen text and voiceover. Pages named in the notes are always explored.
+
+**Your own site.** Two options, both off unless you choose them:
+- *This is my site* (`changes` in the API, `--my-site` on the command line): the video may press buttons that save or
+  create things, as the notes ask (evaluate, create, convert, finish). Deleting, removing, buying, paying and signing
+  out are never clicked, whatever the notes say.
+- *Sign in as me* (the page's button, `POST /api/signin`, or `site-video signin URL`): your installed Chrome or Edge
+  opens at the site with a profile of its own; sign in by hand (Google sign-in works, as it is a normal browser) and
+  close the window. The site's cookies are saved in `SITE_VIDEO_SESSIONS` (`~/.site-video/sessions`), one file per
+  site, and every later video of that site is explored and recorded signed in. Your password never passes through
+  site_video; `site-video signin URL --forget` deletes the saved sign-in.
 
 ### Your own videos
 

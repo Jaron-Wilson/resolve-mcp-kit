@@ -39,7 +39,7 @@ pre{white-space:pre-wrap;font-size:12px;color:var(--dim);max-height:260px;overfl
 @media(max-width:720px){.vid{grid-template-columns:1fr}}
 .chg{border-top:1px solid var(--line);margin-top:12px;padding-top:4px}.chg label{margin-top:12px}.chg textarea{min-height:46px;margin-top:6px}
 .chg>input{margin-top:6px}.sc{border:1px solid var(--line);border-radius:10px;padding:10px;margin:8px 0;background:#191c21}
-.sh{display:flex;gap:6px;align-items:center}.sh b{white-space:nowrap}.sh input{flex:1;min-width:0}
+.mine{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;margin-top:6px;font-size:.9em}.mine label{display:flex;gap:6px;align-items:flex-start;font-weight:400}.mine input{width:auto}.sh{display:flex;gap:6px;align-items:center}.sh b{white-space:nowrap}.sh input{flex:1;min-width:0}
 .sr{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}.sr input{flex:1;min-width:140px}.sr input[type=number]{flex:0 0 90px;min-width:0}
 .sr select{width:auto;max-width:100%}.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}@media(max-width:720px){.g3{grid-template-columns:1fr}}
 .diff{color:var(--ok);font-size:13px;margin:8px 0;padding-left:18px}.hint{color:var(--dim);font-size:13px;margin:6px 0 0}
@@ -55,7 +55,10 @@ pre{white-space:pre-wrap;font-size:12px;color:var(--dim);max-height:260px;overfl
     <p class="hint" id="vhint"></p>
   </div>
   <div class="row">
-    <div id="urlbox"><label for="url">Website</label><input id="url" placeholder="https://example.com" autocomplete="off"></div>
+    <div id="urlbox"><label for="url">Website</label><input id="url" placeholder="https://example.com" autocomplete="off">
+      <div class="mine"><label><input type="checkbox" id="changes"> This is my site: it may press buttons that save or
+        create things, as my notes ask (never delete, buy or sign out)</label>
+        <span><button type="button" id="signin">Sign in as me</button> <span id="sstat" class="meta"></span></span></div></div>
     <div><label>Length</label><div class="seg" id="len"></div></div>
     <div><label for="lenc">or exactly</label><input id="lenc" placeholder="e.g. 2:30 or 90s"></div>
   </div>
@@ -80,6 +83,18 @@ const lenSeg=()=>$('#len').innerHTML=LENS.map(([v,l])=>`<button data-v="${v}" cl
 $('#len').onclick=e=>{const b=e.target.closest('button');if(!b)return;LEN=b.dataset.v;$('#lenc').value='';lenSeg()};$('#lenc').oninput=lenSeg;lenSeg();
 let INFO={voices:['none']};
 let SRC=localStorage.getItem('svSrc')||'site',VIDS=[];
+// signing in: a browser window opens on the computer running the queue; log in there and close it
+async function signStat(){const u=$('#url').value.trim();if(!/^https?:\/\//.test(u)){$('#sstat').textContent='';return}
+  try{const s=await api('api/signin?url='+encodeURIComponent(u));
+    $('#sstat').innerHTML=s.window_open?'sign in in the window on the PC, then close it':s.signed_in?
+      `signed in to ${esc(s.site)} <a href="#" id="sforget">forget</a>`:`not signed in to ${esc(s.site)}`}catch(e){$('#sstat').textContent=''}}
+$('#url').addEventListener('change',signStat);
+$('#signin').onclick=async()=>{const u=$('#url').value.trim();if(!/^https?:\/\//.test(u)){$('#sstat').textContent='give the website first';return}
+  try{await api('api/signin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:u})});signStat();
+    const t=setInterval(async()=>{await signStat();if(!/window/.test($('#sstat').textContent))clearInterval(t)},3000)}
+  catch(e){$('#sstat').textContent=e.message}};
+$('#sstat').onclick=async e=>{if(e.target.id!=='sforget')return;e.preventDefault();
+  await api('api/signin',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:$('#url').value.trim()})});signStat()};
 function srcDraw(){document.querySelectorAll('#src button').forEach(b=>b.classList.toggle('on',b.dataset.v===SRC));
   $('#vbox').hidden=SRC==='site';$('#urlbox').style.visibility=SRC==='videos'?'hidden':'';
   $('#vlist').innerHTML=VIDS.map((v,i)=>`<div class="vid"><span class="n" title="${esc(v.f.name)}">${esc(v.f.name)}<small>${SIZE(v.f.size)}${v.pct!=null?' &middot; '+v.pct+'%':''}</small></span>
@@ -126,7 +141,7 @@ function voiceHint(){const v=$('#voice').value;$('#vname').disabled=(v==='none'|
 $('#voice').onchange=()=>{localStorage.setItem('svVoice',$('#voice').value);voiceHint()};
 $('#go').onclick=async()=>{const v=$('#voice').value,n=$('#vname').value.trim()||(v==='elevenlabs'?INFO.elevenlabs_voice:v==='openai'?INFO.openai_voice:'');
   const body={url:SRC==='videos'?'':$('#url').value.trim(),length:$('#lenc').value.trim()||LEN,notes:$('#notes').value.trim()||'auto',
-    voice:(v==='elevenlabs'||v==='openai')&&n?v+':'+n:v,editor:$('#editor').value,cursor:$('#cursor').value,model:$('#model').value.trim(),deliverables:[...PICK]};
+    voice:(v==='elevenlabs'||v==='openai')&&n?v+':'+n:v,editor:$('#editor').value,cursor:$('#cursor').value,model:$('#model').value.trim(),deliverables:[...PICK],changes:$('#changes').checked};
   if(SRC!=='site'&&!VIDS.length){$('#msg').className='msg bad';$('#msg').textContent='Add your videos first.';return}
   if(SRC!=='videos'&&!body.url){$('#msg').className='msg bad';$('#msg').textContent='Give the website link.';return}
   $('#go').disabled=true;$('#msg').className='msg';$('#msg').textContent='adding...';

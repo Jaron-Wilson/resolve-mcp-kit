@@ -10,7 +10,8 @@ import os
 import re
 from typing import Callable, Dict, List, Optional
 
-from . import assemble, brand, cards, crawl, deliver, media as footage, plan as planner, voice
+from . import assemble, brand, cards, deliver, explore, media as footage, plan as planner, session, voice
+from . import review as checker
 from .record import VERSION as REC_VERSION
 from .util import Log, is_auto, parse_length, read_json, write_json
 
@@ -46,9 +47,11 @@ def media_list(items) -> List[Dict]:
 
 
 def request(url: str, length="auto", notes="auto", voice_spec="none", editor="auto", music: str = "",
-            name: str = "", model: str = "", deliverables="video", media=None, cursor: str = "dot") -> Dict:
+            name: str = "", model: str = "", deliverables="video", media=None, cursor: str = "dot",
+            changes: bool = False) -> Dict:
     """A checked job request (raises ValueError with a readable reason). A website link, the owner's videos
-    (`media`), or both: with both, website scenes fill the length around the videos."""
+    (`media`), or both: with both, website scenes fill the length around the videos. `changes`: it is your own site,
+    so the video may press buttons that save things (never delete, buy or sign out)."""
     media = media_list(media)
     url = (url or "").strip()
     if url and not re.match(r"^https?://", url):
@@ -66,7 +69,8 @@ def request(url: str, length="auto", notes="auto", voice_spec="none", editor="au
         raise ValueError("model: one model id, like qwen3:8b")
     return {"url": url, "length": "auto" if seconds is None else seconds, "notes": "auto" if is_auto(notes) else notes,
             "voice": voice_spec or "none", "editor": editor, "music": music or "", "name": name or "", "model": model,
-            "deliverables": deliver.parse(deliverables), "media": media, "cursor": _cursor(cursor)}
+            "deliverables": deliver.parse(deliverables), "media": media, "cursor": _cursor(cursor),
+            "changes": bool(changes) and bool(url)}
 
 
 def _name(job_dir: str, plan: Dict, req: Dict) -> str:
@@ -82,7 +86,13 @@ def prep(job_dir: str, req: Dict, step: Callable[[str, float], None] = lambda s,
     cr = read_json(os.path.join(job_dir, "crawl.json")) if req.get("url") else None
     if req.get("url") and not cr:
         step("reading the site", 0.02)
-        cr = crawl.crawl(req["url"], crawl.pages_for(seconds), log, brand_dir=job_dir)
+        step("exploring the site", 0.05)
+        named = [u for u in re.findall(r"https?://[^\s)\]>\"']+", req.get("notes") or "")
+                 if explore._same_site(u, req["url"])]
+        signed = session.state_for(req["url"])
+        if signed:
+            log(f"signed in to {session.host(req['url'])} (saved sign-in)")
+        cr = explore.explore(req["url"], log, brand_dir=job_dir, seeds=named, session=signed)
         write_json(os.path.join(job_dir, "crawl.json"), cr)
 
     vids = req.get("media") or []
@@ -99,7 +109,7 @@ def prep(job_dir: str, req: Dict, step: Callable[[str, float], None] = lambda s,
         if req.get("model"):
             log(f"script model: {req['model']}")
         pl = planner.make(cr, seconds, req["notes"], log, model=req.get("model") or "", media=known,
-                          catalogue=footage.catalogue(known))
+                          catalogue=footage.catalogue(known), changes=bool(req.get("changes")))
         write_json(os.path.join(job_dir, "plan.json"), pl)
         log("plan: " + planner.summary(pl))
         planned = sum(s["seconds"] for s in pl["scenes"]) + 10
@@ -134,7 +144,9 @@ def prep(job_dir: str, req: Dict, step: Callable[[str, float], None] = lambda s,
     # each segment's file is named by everything that shapes it, so a revised plan reuses what did not change
     keys = [_key("open", pl["title"], pl.get("tagline", ""), pl.get("problem"), look, secs[0], CARDS_VERSION)]
     shot = lambda s: {k: v for k, v in s.items() if k not in ("caption", "captions", "narration")}   # the picture alone
-    keys += [_key(shot(s), secs[i + 1], "" if "video" in s else (cursor, look["primary"], look.get("zoom", 1.0), REC_VERSION))
+    keys += [_key(shot(s), secs[i + 1], "" if "video" in s else (cursor, look["primary"], look.get("zoom", 1.0), REC_VERSION,
+                                                       bool(session.state_for(req.get("url") or "")),
+                                                       bool(req.get("changes"))))
              for i, s in enumerate(pl["scenes"])]
     keys.append(_key("close", pl["outro"].get("call_to_action"), pl["outro"].get("small"), pl["url"], look, secs[-1],
                      CARDS_VERSION))
@@ -152,7 +164,8 @@ def prep(job_dir: str, req: Dict, step: Callable[[str, float], None] = lambda s,
         if len(todo) < len(clips):
             log(f"redoing {len(todo)} of {len(clips)} segments; the rest are unchanged")
         from .record import Recorder
-        rec = Recorder(cdir, log, cursor, look["primary"], look.get("zoom", 1.0))
+        rec = Recorder(cdir, log, cursor, look["primary"], look.get("zoom", 1.0),
+                       session.state_for(req.get("url") or ""), bool(req.get("changes")))
         try:
             paint = cards.painter(rec.browser, req.get("url") or "", look, job_dir, log)
             for n, i in enumerate(x for x in todo if 0 < x < len(clips) - 1):
@@ -198,6 +211,23 @@ def prep(job_dir: str, req: Dict, step: Callable[[str, float], None] = lambda s,
     log(f"ready to edit: {len(clips)} clips, {sum(secs):.1f} s")
     ready = {"plan": pl, "clips": clips, "mix": mix, "secs": secs, "name": _name(job_dir, pl, req),
              "captions": [{k: c[k] for k in ("png", "start", "end", "text")} for c in caps]}
+    if checker.enabled() and pl["scenes"]:
+        # does each recorded scene show what the script and the voice say? Failed scenes are rewritten by the
+        # script model from what was really recorded, and made again, once
+        step("checking the scenes against the script", 0.88)
+        try:
+            verdicts = checker.review(job_dir, pl, clips, secs, log)
+            ready["review"] = verdicts
+            change = checker.fix_request(verdicts)
+            if change and not req.get("_reviewed"):
+                from . import revise
+                step("fixing the scenes that did not match", 0.9)
+                fixed = revise.suggest(job_dir, change, model=req.get("model") or "", log=log)
+                log("fix: " + "; ".join(fixed["changes"]))
+                revise.apply(job_dir, fixed["plan"])
+                return prep(job_dir, dict(req, _reviewed=True), step)
+        except Exception as e:
+            log(f"review skipped: {type(e).__name__}: {e}")
     write_json(os.path.join(job_dir, "ready.json"), ready)
     return ready
 

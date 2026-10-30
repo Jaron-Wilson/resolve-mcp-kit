@@ -51,7 +51,8 @@ The scenes:
   A scene longer than 8 seconds may have a second caption for its second beat.
 - Only use URLs exactly as the crawl lists them (no #anchors), and only headings, button/link text and field names that
   the crawl shows on that page. The examples here show the shape only: never copy their words.
-- Never click anything that logs in, buys, deletes, submits a form or leaves the site.
+- Never click anything that logs in, buys, deletes, submits a form or leaves the site (unless told below that it is
+  the person's own site and changes are allowed).
 - "narration": what a narrator says over the scene, spoken English, warm and concrete, no URLs read aloud, no "In this
   video". The video must work without it too, so the captions carry the facts.
 - Video scenes: "video" is the file name exactly as given, "from"/"to" are seconds inside that video. Pick the
@@ -74,20 +75,42 @@ def schema(site: bool, videos: bool) -> str:
             f' "scenes": [{kinds}],\n "outro": {{"narration": "...", "call_to_action": "...", "small": "..."}}}}')
 
 
+FULL = 14      # pages shown in full detail; the rest are one line each in the map
+
+
 def _crawl_text(crawl: Dict) -> str:
-    out = []
-    for p in crawl["pages"]:
-        out.append(f"PAGE {p['url']}\ntitle: {p.get('title')}\ndescription: {p.get('description')}")
+    """The explored site: every page as one line, the best views in full, and what its search fields answered."""
+    pages = crawl["pages"]
+    out = [f"SITE MAP ({len(pages)} pages; score = how much real content a page shows, 0 to 10):"]
+    for p in pages:
+        heads = ", ".join(h["text"] for h in (p.get("headings") or [])[:3])
+        out.append(f"- {p['url']} | {p.get('title') or ''} | score {p.get('score', '?')}"
+                   + (f" | {heads}" if heads else "") + (f" | fields: {', '.join(p['inputs'])}" if p.get("inputs") else ""))
+    for t in crawl.get("probes") or []:
+        out.append(f"\nSEARCH TRIED: typing \"{t['query']}\" into \"{t['field']}\" on {t['page']} gave {t['url']} "
+                   f"(score {t['score']}): " + " | ".join(t.get("headings") or [])[:400]
+                   + (f"\n  looks: {t['looks']}" if t.get("looks") else "") + f"\n  text: {(t.get('text') or '')[:300]}")
+        out.append("  To show it, use a type step with exactly that field and query on that page.")
+    out.append("\nTHE BEST VIEWS IN DETAIL:")
+    for p in pages[:FULL]:
+        out.append(f"PAGE {p['url']}\ntitle: {p.get('title')}\ndescription: {p.get('description')}"
+                   + (f"\nlooks: {p['looks']}" if p.get("looks") else ""))
         out.append("headings: " + " | ".join(f"{h['text']} (at {h['at']})" for h in p.get("headings", [])))
         out.append("buttons/links: " + " | ".join(p.get("buttons", [])[:30]))
         if p.get("inputs"):
             out.append("text fields: " + " | ".join(p["inputs"]))
-        out.append("text: " + (p.get("text") or "")[:1200])
-    return "\n".join(out)[:24000]
+        out.append("text: " + (p.get("text") or "")[:900])
+    return "\n".join(out)[:30000]
+
+
+MY_SITE = ("This is the person's own site and they allow changes: clicks may press buttons that save, create or "
+           "convert things (forms, \"Evaluate\", \"Create\", \"Save\", \"Finish\"), as the brief asks. Still never "
+           "delete, remove, buy, pay or sign out. Scenes play in order in one browser, so a later scene sees what an "
+           "earlier one created.")
 
 
 def prompt(crawl: Optional[Dict], seconds: Optional[int], notes: Optional[str], media: Optional[List[Dict]] = None,
-           catalogue: str = "") -> str:
+           catalogue: str = "", changes: bool = False) -> str:
     media = media or []
     site = bool(crawl and crawl.get("pages"))
     if seconds:
@@ -111,24 +134,36 @@ def prompt(crawl: Optional[Dict], seconds: Optional[int], notes: Optional[str], 
                    "all; use every one, and never show a moment twice. If that is less than the length asked for, "
                    "make the video as long as the footage allows.")
     if not is_auto(notes):
-        want = "Requirements from the person who asked (follow them exactly):\n" + notes.strip()
+        # people paste anything here: a wish, a chat message, a whole outline with scenes and voiceover. It is a brief
+        # to turn into the shot list, never a question to answer in prose
+        want = ("THE PERSON'S BRIEF. It may be a short wish, a chat message or a full outline. Follow it: its scenes, "
+                "their order, the pages, the exact text it says to type or paste (use a type step with that text; "
+                "several lines are fine), the buttons to press, its on-screen text (as captions) and its voiceover (as "
+                "narration, shortened to fit). Where it names something the crawl does not show, use the closest real "
+                "page and button. Do not answer it, do not write an outline: turn it into the JSON shot list.\n"
+                "--- brief ---\n" + notes.strip()[:8000] + "\n--- end of brief ---")
     elif site:
         want = "No special requirements: show what the site is for, its best features, and how to get started."
     else:
         want = "No special requirements: tell the story of what the videos show, best moments first."
-    out = f"{target}\n\n{want}\n\nReply in this shape:\n{schema(site, bool(media))}"
+    # what to work from first, the instructions last: a model follows whatever it read last
+    out = want
     if media:
         out += "\n\nThe owner's videos:\n" + (catalogue or "")[:12000]
     if site:
-        out += f"\n\nThe crawl:\n{_crawl_text(crawl)}"
+        out += f"\n\nThe site, as explored:\n{_crawl_text(crawl)}"
+    if changes and site:
+        out += "\n\n" + MY_SITE
+    out += (f"\n\n{target}\n\nReply with only the JSON shot list, in this shape (no outline, no prose, no "
+            f"markdown):\n{schema(site, bool(media))}")
     return out
 
 
 def make(crawl: Optional[Dict], seconds: Optional[int], notes: Optional[str], log=print, model: str = "",
-         media: Optional[List[Dict]] = None, catalogue: str = "") -> Dict:
+         media: Optional[List[Dict]] = None, catalogue: str = "", changes: bool = False) -> Dict:
     last = None
     for attempt in range(3):
-        reply = llm.chat(SYSTEM, prompt(crawl, seconds, notes, media, catalogue) + (
+        reply = llm.chat(SYSTEM, prompt(crawl, seconds, notes, media, catalogue, changes) + (
             f"\n\nYour last reply could not be used ({last}). Reply with only valid JSON." if last else ""),
             model=model)
         try:
@@ -251,8 +286,14 @@ def check(plan: Dict, crawl: Optional[Dict], seconds: Optional[int], media: Opti
     media = media or []
     pages = (crawl or {}).get("pages") or []
     known = {p["url"].rstrip("/") for p in pages}
+    # the pages the explorer reached by searching (a results page) can be shown too
+    known |= {t["url"].rstrip("/") for t in (crawl or {}).get("probes") or [] if t.get("url")}
     start = pages[0]["url"] if pages else ""
     scenes = []
+    if not isinstance(plan.get("scenes"), list):
+        alt = next((v for k, v in plan.items() if isinstance(v, list) and v and isinstance(v[0], dict)
+                    and ("url" in v[0] or "video" in v[0] or "actions" in v[0])), None)
+        plan = dict(plan, scenes=alt or [])
     for s in plan.get("scenes") or []:
         if not isinstance(s, dict):
             continue
@@ -265,7 +306,7 @@ def check(plan: Dict, crawl: Optional[Dict], seconds: Optional[int], media: Opti
             continue
         url = str(s.get("url") or start).split("#")[0]
         if url.rstrip("/") not in known:
-            url = start
+            url = url if url.rstrip("/") in known else start
         page = next((p for p in pages if p["url"].rstrip("/") == url.rstrip("/")), {})
         narration = str(s.get("narration") or "").strip()
         need = len(words(narration)) / WORDS_PER_SECOND + 1.0

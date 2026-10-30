@@ -3,6 +3,7 @@
   site-video make [URL] [--video clip.mp4 [--note-for "what it is"]]... [--length 5min|90s|auto] [--notes "show pricing"|auto]
                       [--voice none|openai:alloy|elevenlabs:ID|odysseus] [--editor auto|resolve|ffmpeg] [--model qwen3:8b]
                       [--music track.mp3] [--name NAME] [--out DIR]
+  site-video signin URL [--forget]      (your own site: log in once in a browser window; use --my-site on make/add)
   site-video serve [--host 127.0.0.1] [--port 8940] [--parallel 2] [--home DIR]
   site-video add [URL] [same options as make] [--server http://host:8940]   (videos are uploaded to the server)
   site-video list | status ID | cancel ID | retry ID | remove ID | get ID [-o file.mp4]     [--server ...]
@@ -98,6 +99,13 @@ def main(argv=None):
         p.add_argument("--name", default="")
         p.add_argument("--cursor", default="dot", choices=["dot", "arrow", "hand", "ring", "none"],
                        help="the cursor on website scenes (ring: arrow with a highlight and a ripple on clicks)")
+        p.add_argument("--my-site", action="store_true",
+                       help="your own site: the video may press buttons that save or create things (never delete, buy "
+                            "or sign out). Sign in first with: site-video signin URL")
+
+    p = sub.add_parser("signin", help="sign in to your own site once, in a browser window here; later videos use it")
+    p.add_argument("url")
+    p.add_argument("--forget", action="store_true", help="delete the saved sign-in instead")
 
     p = sub.add_parser("make", help="make one video now, in this terminal")
     job_args(p)
@@ -138,11 +146,18 @@ def main(argv=None):
     if a.cmd == "_stage":
         from .queue import run_stage
         sys.exit(run_stage(a.stage, a.job_dir))
+    if a.cmd == "signin":
+        from . import session
+        try:
+            print(json.dumps(session.forget(a.url) if a.forget else session.signin(a.url)))
+        except ValueError as e:
+            sys.exit(f"error: {e}")
+        return
     if a.cmd == "make":
         from . import pipeline
         try:
             req = pipeline.request(a.url, a.length, a.notes, a.voice, a.editor, a.music, a.name, a.model, a.deliver,
-                                   _media(a), a.cursor)
+                                   _media(a), a.cursor, a.my_site)
         except ValueError as e:
             sys.exit(f"error: {e}")
         out = a.out or os.path.join(DEFAULT_HOME, "jobs", time.strftime("%Y%m%d-%H%M%S-cli"))
@@ -161,7 +176,7 @@ def main(argv=None):
         for m in media:
             print(f"uploading {m['file']} ...", flush=True)
             m["file"] = _upload(a.server, m["file"])
-        j = _http(a.server, "POST", "/api/jobs", {"url": a.url, "media": media, "cursor": a.cursor, "length": a.length, "notes": a.notes, "voice": a.voice,
+        j = _http(a.server, "POST", "/api/jobs", {"url": a.url, "media": media, "cursor": a.cursor, "changes": a.my_site, "length": a.length, "notes": a.notes, "voice": a.voice,
                                                     "editor": a.editor, "name": a.name, "model": a.model,
                                                     "deliverables": a.deliver.split(",")})
         _show(j)
