@@ -175,10 +175,99 @@ Resolve's API only works in your logged-in desktop session, so start the server
 with a Task Scheduler task "At log on of <you>" running
 `start-resolve-mcp.cmd`, not as a service.
 
+## Website promo videos (`site_video`)
+
+Give it a link and it makes a narrated promo video of the site:
+
+1. **Reads the site**: the start page and the same-site pages it links to (headings, buttons, text).
+2. **Writes a script** with any OpenAI-compatible model: scenes, captions, narration and what to scroll to or point
+   at, fitted to the length you ask for and to your notes ("show pricing, end on sign-up"), or chosen for you.
+3. **Records the real site** in Chromium at 1080p/30: smooth scrolling, a visible cursor that glides to things,
+   lower-third captions, plus intro and outro title cards.
+4. **Adds a voiceover**, with the voice chosen per video.
+5. **Edits it in DaVinci Resolve**: a new timeline in a "Site videos" project (one bin per video, a marker per
+   scene, so you can polish it by hand), then a render. Without Resolve, it joins the clips with ffmpeg instead.
+
+It never logs in, buys, submits forms or deletes anything on the site. Only make videos of sites you may show.
+
+### Install
+
+```
+pip install -r requirements-video.txt
+python -m playwright install chromium
+```
+
+ffmpeg comes with `imageio-ffmpeg`; set `FFMPEG` to use your own.
+
+### Settings (environment variables)
+
+| Variable | What |
+|---|---|
+| `SITE_VIDEO_LLM_URL`, `SITE_VIDEO_LLM_MODEL`, `SITE_VIDEO_LLM_KEY` | The model that writes the script: any OpenAI-compatible `/v1` (default: a local Ollama with `qwen3:8b`). Bigger models write better scripts. |
+| `SITE_VIDEO_TTS_URL`, `SITE_VIDEO_TTS_KEY`, `SITE_VIDEO_TTS_MODEL` | Voice `openai[:voice]`: OpenAI (default URL) or any compatible `/audio/speech`, e.g. a Kokoro-FastAPI server (`SITE_VIDEO_TTS_MODEL=kokoro`). |
+| `ELEVENLABS_API_KEY` | Voice `elevenlabs:<voice id>`. |
+| `SITE_VIDEO_ODYSSEUS_URL`, `SITE_VIDEO_ODYSSEUS_TOKEN` | Voice `odysseus`: an Odysseus server's own voice. |
+| `SITE_VIDEO_DEFAULT_VOICE` | The voice when a job does not name one. |
+| `SITE_VIDEO_HOME` | Where jobs and videos go (default `~/site-videos`). |
+| `SITE_VIDEO_TOKEN` | If set, the queue's HTTP API and page need it. |
+| `SITE_VIDEO_RESOLVE_PROJECT` | The Resolve project for edits (default `Site videos`). |
+| `SITE_VIDEO_START_RESOLVE` | Resolve's program file: if set, a Resolve edit opens Resolve when it is closed (run the queue in your desktop session). |
+
+### One video, in a terminal
+
+```
+python -m site_video make https://example.com --length 2min --notes "show pricing, end on sign-up" --voice openai:alloy
+```
+
+`--length` takes `5min`, `90s`, `1:30` or `auto`; `--notes` takes plain words or `auto`; `--editor` takes
+`auto` (Resolve if it is open, else ffmpeg), `resolve` or `ffmpeg`; `--model` picks the model that writes the
+script for this video (default `SITE_VIDEO_LLM_MODEL`; the page lists the endpoint's models); `--music file.mp3`
+plays music under the voice, quieter while it speaks.
+
+### A queue (several videos, 2 at a time)
+
+```
+python -m site_video serve --port 8940 --parallel 2
+```
+
+Open `http://127.0.0.1:8940/` for a page with a form and the queue (watch, download, cancel, try again), or use it
+from a terminal or another program:
+
+```
+python -m site_video add https://example.com --length 5min --notes "..." --wait
+python -m site_video list
+python -m site_video get <id> -o video.mp4
+```
+
+Up to `--parallel` videos are read, scripted, voiced and recorded at once; edits take turns, since one Resolve
+renders one thing at a time. Each stage runs in its own process and keeps its output, so a cancelled, failed or
+restarted job continues from its last finished stage. The HTTP API is documented at the top of
+`site_video/server.py`.
+
+### From an agent
+
+With `RESOLVE_MCP_ALLOW_WRITE=1` (or `SITE_VIDEO_SERVER` set), the MCP server also offers `make_site_video`,
+`site_video_status` and `list_site_videos`, which use the queue at `SITE_VIDEO_SERVER` (default
+`http://127.0.0.1:8940`). The `website-promo-video` skill (in `skills/`, and `.claude/skills/`) teaches an agent to
+turn "go through this site and make a 5 minute video, make sure you show X" into a job.
+
+### Limits
+
+- The Resolve edit runs on the computer with Resolve and switches it to the "Site videos" project for the edit,
+  opening your project again afterwards. Developed against Resolve Studio 21.1 on Windows; macOS and Linux are
+  untested.
+- Resolve 21 opens on its Project Manager screen, and while that screen is up, scripting cannot open or create
+  projects. When the queue opens Resolve itself (`SITE_VIDEO_START_RESOLVE`) it uses `-nogui` (Studio), which has
+  no such screen; if Resolve is already open on the Project Manager, open any project first.
+- Requested lengths are targets: a scene is never shorter than its narration, and the title cards add a few
+  seconds, so a 30 second request usually comes out at 35 to 40.
+- Sites that need a login, block headless browsers or show a full-screen pop-up the recorder cannot dismiss will not
+  record well.
+
 ## Testing
 
 ```
-pip install -r requirements.txt pytest
+pip install -r requirements.txt -r requirements-video.txt pytest
 python -m pytest tests
 ```
 

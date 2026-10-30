@@ -1,0 +1,40 @@
+{
+  "manifest_version": 1,
+  "id": "site-video",
+  "name": "Site videos",
+  "version": "0.1.0",
+  "description": "Give it a link: it reads the website, writes a script, records the site in a browser, adds a voiceover and edits a promo video in DaVinci Resolve (or ffmpeg)",
+  "author": "Jaron Wilson",
+  "license": "MIT",
+  "homepage": "https://github.com/Jaron-Wilson/resolve-mcp-kit",
+  "min_core": "0.1",
+  "tags": ["media", "ai"],
+  "runtime": {
+    "type": "process",
+    "command": ["python", "-m", "site_video", "odysseus-mod"],
+    "setup": [["python3", "-m", "venv", ".venv"],
+              [".venv/bin/pip", "install", "-q", "-r", "requirements-video.txt"],
+              [".venv/bin/python", "-m", "playwright", "install", "chromium"]],
+    "health": "/health",
+    "start": "lazy",
+    "idle_stop_minutes": 0
+  },
+  "permissions": ["network.lan", "storage"],
+  "ui": {
+    "tabs": [{ "id": "videos", "title": "Site videos", "icon": "gallery", "path": "/", "section": "create" }],
+    "settings_path": "/settings"
+  },
+  "tools": { "endpoint": "/mod/tools", "keywords": ["video", "videos", "promo", "walkthrough", "website", "resolve"] },
+  "tutorial": {
+    "version": 1,
+    "steps": [
+      { "title": "A link in, a video out",
+        "body": "Paste a website's link, pick a length (or **Auto**) and say what it must show (or leave it empty). It reads the site, writes a script, records the real site with a cursor and captions, adds a voiceover and edits the video." },
+      { "title": "Where videos are made",
+        "body": "To edit in **DaVinci Resolve**, run `python -m site_video serve` on the computer with Resolve and give its address in settings. With no address, videos are made on this server and joined with ffmpeg.",
+        "action": { "label": "Open settings", "settings": true } },
+      { "title": "Ask in a chat",
+        "body": "In a chat, say *make a 2 minute video of https://example.com, make sure you show the pricing page*. Two videos are prepared at a time; edits take turns." }
+    ]
+  }
+}
