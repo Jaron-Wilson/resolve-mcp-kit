@@ -122,9 +122,13 @@ def edit(work: str, name: str, clips: List[str], mix: str, captions: List[str], 
     pm = resolve.GetProjectManager()
     before = pm.GetCurrentProject()
     before_name = before.GetName() if before else None
-    if before is not None:
-        pm.SaveProject()
     home = _folder_path(pm)
+    # Only a project that is in the project list is the user's work, to save now and open again afterwards. A
+    # freshly started Resolve has an unsaved "Untitled Project" open, and saving that asks where to save it, in a
+    # window scripting cannot answer: leave it alone.
+    keep = bool(before_name) and before_name in (pm.GetProjectListInCurrentFolder() or [])
+    if keep:
+        pm.SaveProject()
     try:
         pm.GotoRootFolder()
         if FOLDER not in (pm.GetFolderListInCurrentFolder() or []):
@@ -215,6 +219,6 @@ def edit(work: str, name: str, clips: List[str], mix: str, captions: List[str], 
                 log("  Resolve did not export the project")
         return result
     finally:
-        _open_folder(pm, home)
-        if before_name:
+        if keep:
+            _open_folder(pm, home)
             pm.LoadProject(before_name)
