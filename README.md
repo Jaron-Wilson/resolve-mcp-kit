@@ -542,6 +542,49 @@ The queue's HTTP API is listed at the top of `site_video/server.py`.
   cannot dismiss will not record well.
 - A 30 second request usually comes out at 35 to 40 seconds, because of the cards.
 
+## Run without Odysseus
+
+site-video is a standalone app first. The Odysseus mod (`python -m site_video odysseus-mod`) is only a wrapper that
+shows the same queue as a tab and adds chat tools. Nothing below needs Odysseus.
+
+```
+git clone https://github.com/Jaron-Wilson/resolve-mcp-kit.git && cd resolve-mcp-kit
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt -r requirements-video.txt
+.venv/bin/python -m playwright install chromium
+SITE_VIDEO_TOKEN=a-long-random-string .venv/bin/python -m site_video serve
+```
+
+Open `http://127.0.0.1:8940/`. This project has its own settings and does not use the `MOD_*` variables of the mod
+contract, and it has no model client shared with other mods: its model is set with `SITE_VIDEO_LLM_*` (see
+[Model setup](#model-setup)). `requirements.txt` alone is enough to start the queue, list jobs and run the tests;
+making a video needs `requirements-video.txt`, Playwright's Chromium and ffmpeg.
+
+| Variable | Default | What |
+|---|---|---|
+| `SITE_VIDEO_TOKEN` | unset | Password for the page and API. Optional on loopback; see below for other addresses |
+| `--host`, `--port` of `serve` | `127.0.0.1`, `8940` | Where it listens |
+| `--home` or `SITE_VIDEO_HOME` | `~/site-videos` | Jobs, uploads (the data folder) |
+| `SITE_VIDEO_LLM_URL`, `SITE_VIDEO_LLM_MODEL`, `SITE_VIDEO_LLM_KEY` | local Ollama, `qwen3:8b`, empty | The model that writes the script (any OpenAI-compatible server) |
+
+Access: on `127.0.0.1` there is no login unless you set `SITE_VIDEO_TOKEN`. If you start `serve` on any other address
+(`--host 0.0.0.0`, a LAN or VPN address) and `SITE_VIDEO_TOKEN` is not set, it makes a random token, prints it and
+requires it, so the queue is never open to the network. Send it as `Authorization: Bearer <token>`, or open
+`/?token=<token>` once in a browser. Odysseus mode is unchanged: it uses the core's signed identity and does not read
+`SITE_VIDEO_TOKEN`.
+
+What works standalone:
+
+- The whole queue and its page, the command line (`make`, `add`, `list`, `change` ...), the MCP server, ffmpeg or
+  Resolve editing, sign-in to your own site, uploads, and every deliverable.
+- The script model, voices and vision/speech models from your own `SITE_VIDEO_*` settings (a local Ollama needs no key).
+
+What needs Odysseus:
+
+- The Site videos tab and the chat tools (`make_site_video` ...) as Odysseus shows them, and the signed identity.
+- The `odysseus` voice (`SITE_VIDEO_ODYSSEUS_URL`, `SITE_VIDEO_ODYSSEUS_TOKEN`), which borrows an Odysseus server's voice.
+  Pick another voice or none.
+
 ## Troubleshooting
 
 | You see | What it means and what to do |

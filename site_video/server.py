@@ -32,13 +32,15 @@ Over HTTP a job's media must be uploads, or files inside the folders in SITE_VID
 system's path separator), so a request cannot reach other files on this computer.
 
 If SITE_VIDEO_TOKEN is set, every request needs "Authorization: Bearer <token>" (or ?token=<token> once in a browser,
-which sets a cookie).
+which sets a cookie). Bound to an address other than loopback with no SITE_VIDEO_TOKEN, serve() makes a random token
+and prints it, so the queue is never open to the network.
 """
 
 import hmac
 import json
 import os
 import re
+import secrets
 import shutil
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -326,7 +328,19 @@ def make_handler(q: Queue):
     return H
 
 
+def is_loopback(host: str) -> bool:
+    return (host or "").strip().lower() in ("127.0.0.1", "localhost", "::1", "[::1]") or (host or "").startswith("127.")
+
+
 def serve(home: str, host: str = "127.0.0.1", port: int = 8940, parallel: int = 2) -> None:
+    global TOKEN
+    if not TOKEN and not is_loopback(host):
+        # never leave a queue that can open web addresses and take uploads open to the network: make a token
+        TOKEN = secrets.token_urlsafe(24)
+        print(f"site-video: listening on {host}, which is not loopback, and SITE_VIDEO_TOKEN is not set.\n"
+              f"  Using a random token for this run: {TOKEN}\n"
+              f"  Open http://<this address>:{port}/?token={TOKEN} once in a browser, or send "
+              f"'Authorization: Bearer <token>'. Set SITE_VIDEO_TOKEN to choose your own.", flush=True)
     q = Queue(home, parallel)
     q.start()
     srv = ThreadingHTTPServer((host, port), make_handler(q))
